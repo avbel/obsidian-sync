@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.3.0/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
 	"formatter": { "indentStyle": "tab", "lineWidth": 100 },
 	"javascript": { "formatter": { "quoteStyle": "single", "semicolons": "always" } },
 	"linter": {
@@ -10,5 +10,5 @@
 			"style": { "useConst": "error", "noNonNullAssertion": "error" }
 		}
 	},
-	"files": { "includes": ["**", "!**/dist/**", "!**/node_modules/**"] }
+	"files": { "includes": ["**", "!**/dist", "!**/node_modules"] }
 }
