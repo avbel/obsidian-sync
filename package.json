@@ -1,0 +1,20 @@
+{
+	"name": "obsidian-sync",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@12.3.4",
+	"engines": { "node": ">=26" },
+	"scripts": {
+		"build": "pnpm -r build",
+		"typecheck": "pnpm -r typecheck",
+		"test": "vitest run",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write ."
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.0",
+		"@types/node": "^26.0.0",
+		"typescript": "^7.0.0",
+		"vitest": "^4.0.0"
+	}
+}
