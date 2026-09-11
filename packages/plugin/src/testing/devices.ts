@@ -76,6 +76,7 @@ export async function makeDevice(
 		local,
 		selective: overrides.selective ?? fullSelective,
 		deviceId,
+		deviceLabel: deviceId,
 		onConflict: (conflict) => conflicts.push(conflict),
 	};
 	return { engine: new SyncEngine(deps), vault, index, bases, local, conflicts, deps };

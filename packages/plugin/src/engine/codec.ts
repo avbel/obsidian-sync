@@ -20,6 +20,15 @@ export interface EncodedFile {
 	size: number;
 }
 
+export interface EncodeFileOptions {
+	path: string;
+	data: Uint8Array;
+	mtime: number;
+	ctime: number;
+	mime: string;
+	deviceLabel: string;
+}
+
 /**
  * Turn local file bytes into everything needed for a commit: identity, encrypted
  * and content-addressed chunks, and the authenticated meta (path + ordered address
@@ -28,16 +37,13 @@ export interface EncodedFile {
  */
 export async function encodeFile(
 	keys: PurposeKeys,
-	path: string,
-	data: Uint8Array,
-	stat: { mtime: number; ctime: number },
-	mime: string,
+	options: EncodeFileOptions,
 ): Promise<EncodedFile> {
-	const fileId = await computeFileId(keys.nameMacKey, path);
-	const encryptedPath = await encryptPath(keys.pathCryptoKey, path);
+	const fileId = await computeFileId(keys.nameMacKey, options.path);
+	const encryptedPath = await encryptPath(keys.pathCryptoKey, options.path);
 
 	const chunks: EncodedChunk[] = [];
-	for (const chunk of splitChunks(data)) {
+	for (const chunk of splitChunks(options.data)) {
 		chunks.push({
 			address: await blobAddress(keys.contentMacKey, chunk),
 			blob: await encryptChunkBlob(keys.contentCryptoKey, keys.contentMacKey, chunk),
@@ -46,18 +52,19 @@ export async function encodeFile(
 
 	const meta: FileMeta = {
 		encryptedPath,
-		mtime: stat.mtime,
-		ctime: stat.ctime,
-		mime,
-		size: data.length,
+		mtime: options.mtime,
+		ctime: options.ctime,
+		mime: options.mime,
+		size: options.data.length,
 		chunks: chunks.map((chunk) => chunk.address),
+		deviceLabel: options.deviceLabel,
 	};
 
 	return {
 		fileId,
 		chunks,
 		metaBlob: await encryptFileMeta(keys.contentCryptoKey, fileId, meta),
-		size: data.length,
+		size: options.data.length,
 	};
 }
 

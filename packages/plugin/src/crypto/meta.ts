@@ -23,6 +23,12 @@ export interface FileMeta {
 	size: number;
 	/** Ordered blob addresses; the authoritative version-graph position (§4.4 reconciliation). */
 	chunks: string[];
+	/**
+	 * The committing device's human name, for version history. Sealed here rather
+	 * than sent as a column so the server never learns device names; absent on every
+	 * version committed before this field existed, hence optional in both directions.
+	 */
+	deviceLabel?: string | undefined;
 }
 
 function aadForFile(fileId: string): Uint8Array {

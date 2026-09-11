@@ -39,6 +39,7 @@ export interface SyncEngineDeps {
 	local: LocalState;
 	selective: SelectiveSyncOptions;
 	deviceId: string;
+	deviceLabel: string;
 	onStatus?: (status: EngineStatus) => void;
 	onConflict?: (conflict: ConflictRecord) => void;
 }
@@ -88,16 +89,23 @@ function textToBytes(text: string): Uint8Array {
 export class SyncEngine {
 	readonly #deps: SyncEngineDeps;
 	#selective: SelectiveSyncOptions;
+	#deviceLabel: string;
 	#sawVault = false;
 
 	constructor(deps: SyncEngineDeps) {
 		this.#deps = deps;
 		this.#selective = deps.selective;
+		this.#deviceLabel = deps.deviceLabel;
 	}
 
 	/** Applies a settings change to a running engine, so a category toggle takes effect at once. */
 	updateSelective(selective: SelectiveSyncOptions): void {
 		this.#selective = selective;
+	}
+
+	/** Renaming a device applies to versions committed from now on, never retroactively. */
+	updateDeviceLabel(deviceLabel: string): void {
+		this.#deviceLabel = deviceLabel;
 	}
 
 	#status(status: EngineStatus): void {
@@ -157,13 +165,14 @@ export class SyncEngine {
 	async #pushFile(file: VaultFile, data: Uint8Array, attempt = 0): Promise<void> {
 		const { vaultId, client, keys, index, bases, deviceId } = this.#deps;
 		const known = index.get(file.path);
-		const encoded = await encodeFile(
-			keys,
-			file.path,
+		const encoded = await encodeFile(keys, {
+			path: file.path,
 			data,
-			{ mtime: file.mtime, ctime: file.ctime },
-			mimeFor(file.path),
-		);
+			mtime: file.mtime,
+			ctime: file.ctime,
+			mime: mimeFor(file.path),
+			deviceLabel: this.#deviceLabel,
+		});
 
 		const missing = (
 			await client.checkBlobs(

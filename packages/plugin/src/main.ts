@@ -274,6 +274,7 @@ export default class SyncPlugin extends Plugin {
 			local,
 			selective: toSelectiveSyncOptions(this.settings),
 			deviceId,
+			deviceLabel: this.settings.deviceLabel,
 			onStatus: (status) => this.#setStatus(status),
 			onConflict: (conflict) => {
 				this.#conflicts?.add(conflict);
@@ -427,6 +428,7 @@ export default class SyncPlugin extends Plugin {
 	applyLiveSettings(): void {
 		this.#applyCoreSyncVisibility();
 		this.#engine?.updateSelective(toSelectiveSyncOptions(this.settings));
+		this.#engine?.updateDeviceLabel(this.settings.deviceLabel);
 		this.#watcher?.setDebounce(this.settings.debounceMs);
 	}
 
