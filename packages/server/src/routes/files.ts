@@ -8,7 +8,13 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { AppDependencies } from '../app.js';
 import { latestSeq } from '../changes.js';
-import { commitVersion, deleteFile, listVersions, readVaultState } from '../files.js';
+import {
+	commitVersion,
+	deleteFile,
+	listVersions,
+	readVaultState,
+	type VersionWindow,
+} from '../files.js';
 import { findVaultForOwner } from '../vaults.js';
 
 interface FileParams {
@@ -18,6 +24,21 @@ interface FileParams {
 
 interface VaultParams {
 	vaultId: string;
+}
+
+const versionListDefaultLimit = 50;
+const versionListMaxLimit = 200;
+
+function parseWindow(query: { limit?: string; offset?: string }): VersionWindow {
+	const limit = Number(query.limit ?? versionListDefaultLimit);
+	const offset = Number(query.offset ?? 0);
+	return {
+		limit:
+			Number.isInteger(limit) && limit > 0
+				? Math.min(limit, versionListMaxLimit)
+				: versionListDefaultLimit,
+		offset: Number.isInteger(offset) && offset >= 0 ? offset : 0,
+	};
 }
 
 export function registerFileRoutes(scope: FastifyInstance, dependencies: AppDependencies): void {
@@ -93,15 +114,23 @@ export function registerFileRoutes(scope: FastifyInstance, dependencies: AppDepe
 		},
 	);
 
-	scope.get<{ Params: FileParams }>(
+	scope.get<{ Params: FileParams; Querystring: { limit?: string; offset?: string } }>(
 		'/v1/vaults/:vaultId/files/:fileId/versions',
 		async (request, reply) => {
 			const { vaultId, fileId } = request.params;
+			if (!fileIdPattern.test(fileId)) {
+				return reply.code(400).send({ error: 'invalid_file_id' });
+			}
 			if (findVaultForOwner(db, vaultId, request.username) === undefined) {
 				return reply.code(404).send({ error: 'vault_not_found' });
 			}
 
-			const response: VersionsResponse = { versions: listVersions(db, vaultId, fileId) };
+			const response: VersionsResponse = listVersions(
+				db,
+				vaultId,
+				fileId,
+				parseWindow(request.query),
+			);
 			return reply.send(response);
 		},
 	);

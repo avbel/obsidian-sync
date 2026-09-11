@@ -80,6 +80,14 @@ export interface CreateVaultRequest {
 export interface VersionSummary {
 	versionId: string;
 	parentVersion: string | undefined;
+	/**
+	 * Base64 of the encrypted metadata envelope committed with this version. It is
+	 * what makes a version readable: the ordered chunk-address list lives inside it
+	 * (decision D5), not in this record, so the server cannot enumerate a version's
+	 * content and a client without K_content cannot either.
+	 */
+	metaBlob: string;
+	/** Plaintext byte length, for display only. */
 	size: number;
 	deviceId: string;
 	createdAt: number;
@@ -87,6 +95,8 @@ export interface VersionSummary {
 
 export interface VersionsResponse {
 	versions: VersionSummary[];
+	/** True when older versions exist beyond the requested window. */
+	hasMore: boolean;
 }
 
 export interface StreamTicketResponse {

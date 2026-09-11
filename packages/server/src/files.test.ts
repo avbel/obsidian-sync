@@ -203,16 +203,74 @@ describe('readVaultState', () => {
 });
 
 describe('listVersions', () => {
-	test('returns versions newest first with parent links', () => {
+	test('returns newest first with the committed meta blob', () => {
 		const first = commit(undefined);
-		if (first.status !== 'committed') {
-			expect.unreachable('first commit should succeed');
-		}
-		commit(first.versionId);
+		const second = commit(first.status === 'committed' ? first.versionId : undefined);
 
-		const versions = listVersions(db, 'v1', fileId);
-		expect(versions).toHaveLength(2);
-		expect(versions[0]?.parentVersion).toBe(first.versionId);
-		expect(versions[1]?.parentVersion).toBeUndefined();
+		const page = listVersions(db, 'v1', fileId, { limit: 50, offset: 0 });
+
+		expect(page.versions).toHaveLength(2);
+		expect(page.versions[0]?.versionId).toBe(
+			second.status === 'committed' ? second.versionId : 'unreachable',
+		);
+		expect(page.versions[0]?.metaBlob).toBe('bWV0YQ==');
+		expect(page.versions[1]?.parentVersion).toBeUndefined();
+		expect(page.hasMore).toBe(false);
+	});
+
+	test('orders versions committed in the same millisecond by insertion, newest first', () => {
+		// created_at has millisecond resolution, so a scripted restore or a fast
+		// rebuild can land two versions on the same tick. rowid is the tiebreak;
+		// without it history renders in an order the user did not edit in.
+		let parent: string | undefined;
+		const committed: string[] = [];
+		for (let index = 0; index < 5; index += 1) {
+			const outcome = commit(parent);
+			if (outcome.status !== 'committed') {
+				throw new Error('setup commit rejected');
+			}
+			parent = outcome.versionId;
+			committed.push(outcome.versionId);
+		}
+
+		const page = listVersions(db, 'v1', fileId, { limit: 50, offset: 0 });
+
+		expect(page.versions.map((version) => version.versionId)).toEqual([...committed].reverse());
+	});
+
+	test('pages, and reports that more remain', () => {
+		let parent: string | undefined;
+		for (let index = 0; index < 5; index += 1) {
+			const outcome = commit(parent);
+			parent = outcome.status === 'committed' ? outcome.versionId : undefined;
+		}
+
+		const first = listVersions(db, 'v1', fileId, { limit: 2, offset: 0 });
+		const second = listVersions(db, 'v1', fileId, { limit: 2, offset: 2 });
+		const last = listVersions(db, 'v1', fileId, { limit: 2, offset: 4 });
+
+		expect(first.versions).toHaveLength(2);
+		expect(first.hasMore).toBe(true);
+		expect(second.versions).toHaveLength(2);
+		expect(second.hasMore).toBe(true);
+		expect(last.versions).toHaveLength(1);
+		expect(last.hasMore).toBe(false);
+	});
+
+	test('keeps the versions of a deleted file', () => {
+		const created = commit(undefined);
+		deleteFile(db, {
+			vaultId: 'v1',
+			fileId,
+			parentVersion: created.status === 'committed' ? created.versionId : undefined,
+		});
+
+		expect(listVersions(db, 'v1', fileId, { limit: 50, offset: 0 }).versions).toHaveLength(1);
+	});
+
+	test('never crosses a vault boundary', () => {
+		commit(undefined);
+
+		expect(listVersions(db, 'v2', fileId, { limit: 50, offset: 0 }).versions).toHaveLength(0);
 	});
 });

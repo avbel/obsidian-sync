@@ -165,24 +165,46 @@ export function readVaultState(db: DatabaseSync, vaultId: string): FileState[] {
 	}));
 }
 
-export function listVersions(db: DatabaseSync, vaultId: string, fileId: string): VersionSummary[] {
+export interface VersionWindow {
+	limit: number;
+	offset: number;
+}
+
+export interface VersionPage {
+	versions: VersionSummary[];
+	hasMore: boolean;
+}
+
+export function listVersions(
+	db: DatabaseSync,
+	vaultId: string,
+	fileId: string,
+	window: VersionWindow,
+): VersionPage {
+	// One row beyond the window answers hasMore without a second COUNT query.
 	const rows = db
 		.prepare(
-			'SELECT version_id, parent_version, size, device_id, created_at FROM version WHERE vault_id = ? AND file_id = ? ORDER BY created_at DESC, rowid DESC',
+			'SELECT version_id, parent_version, meta_blob, size, device_id, created_at FROM version WHERE vault_id = ? AND file_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?',
 		)
-		.all(vaultId, fileId) as {
+		.all(vaultId, fileId, window.limit + 1, window.offset) as {
 		version_id: string;
 		parent_version: string | null;
+		meta_blob: string;
 		size: number;
 		device_id: string;
 		created_at: number;
 	}[];
 
-	return rows.map((row) => ({
-		versionId: row.version_id,
-		parentVersion: row.parent_version ?? undefined,
-		size: row.size,
-		deviceId: row.device_id,
-		createdAt: row.created_at,
-	}));
+	const hasMore = rows.length > window.limit;
+	return {
+		versions: rows.slice(0, window.limit).map((row) => ({
+			versionId: row.version_id,
+			parentVersion: row.parent_version ?? undefined,
+			metaBlob: row.meta_blob,
+			size: row.size,
+			deviceId: row.device_id,
+			createdAt: row.created_at,
+		})),
+		hasMore,
+	};
 }

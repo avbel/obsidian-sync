@@ -1,0 +1,163 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { VersionsResponse } from '@obsidian-sync/protocol';
+import type { FastifyInstance } from 'fastify';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { type AppDependencies, buildApp } from '../app.js';
+import { createBlobStore } from '../blobs.js';
+import { ChangeNotifier } from '../changes.js';
+import { loadConfig } from '../config.js';
+import { closeDatabase, openDatabase } from '../db/database.js';
+import { SerialWriter } from '../db/writer.js';
+import { TicketStore } from '../tickets.js';
+import { buildUserRegistry } from '../users.js';
+
+const aliceToken = 'a'.repeat(40);
+const bobToken = 'b'.repeat(40);
+const fileId = 'f'.repeat(64);
+
+let directory: string;
+let dependencies: AppDependencies;
+let app: FastifyInstance;
+let vaultId: string;
+let bobVaultId: string;
+
+function authorised(token: string): { authorization: string } {
+	return { authorization: `Bearer ${token}` };
+}
+
+async function createVault(name: string, token: string): Promise<string> {
+	const response = await app.inject({
+		method: 'POST',
+		url: '/v1/vaults',
+		headers: authorised(token),
+		payload: { name },
+	});
+	if (response.statusCode !== 201) {
+		throw new Error(`vault setup failed: ${response.statusCode}`);
+	}
+	return (response.json() as { id: string }).id;
+}
+
+async function commitVersion(
+	id: string,
+	metaBlob: string,
+	parentVersion?: string,
+): Promise<string> {
+	const response = await app.inject({
+		method: 'POST',
+		url: `/v1/vaults/${id}/files/${fileId}`,
+		headers: authorised(aliceToken),
+		payload: { metaBlob, chunks: [], size: 0, deviceId: 'device-1', parentVersion },
+	});
+	if (response.statusCode !== 201) {
+		throw new Error(`commit setup failed: ${response.statusCode} ${response.body}`);
+	}
+	return (response.json() as { versionId: string }).versionId;
+}
+
+beforeEach(async () => {
+	directory = await mkdtemp(join(tmpdir(), 'sync-files-routes-'));
+	dependencies = {
+		config: loadConfig({ DATA_DIR: directory, LOG_LEVEL: 'silent' }),
+		users: buildUserRegistry({ SYNC_USER_ALICE: aliceToken, SYNC_USER_BOB: bobToken }),
+		db: openDatabase(join(directory, 'sync.db')),
+		writer: new SerialWriter(),
+		blobs: createBlobStore(join(directory, 'blobs')),
+		notifier: new ChangeNotifier(),
+		tickets: new TicketStore(60_000),
+	};
+	app = buildApp(dependencies);
+	await app.ready();
+	vaultId = await createVault('personal', aliceToken);
+	bobVaultId = await createVault('personal', bobToken);
+});
+
+afterEach(async () => {
+	await app.close();
+	closeDatabase(dependencies.db);
+	await rm(directory, { recursive: true, force: true });
+});
+
+describe('GET /v1/vaults/:vaultId/files/:fileId/versions', () => {
+	test('rejects a non-hex file id', async () => {
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/files/not-a-file-id/versions`,
+			headers: authorised(aliceToken),
+		});
+		expect(response.statusCode).toBe(400);
+	});
+
+	test('hides another user vault behind a 404', async () => {
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/files/${fileId}/versions`,
+			headers: authorised(bobToken),
+		});
+		expect(response.statusCode).toBe(404);
+	});
+
+	test('clamps an oversized limit instead of returning everything', async () => {
+		await commitVersion(vaultId, 'bWV0YQ==');
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/files/${fileId}/versions?limit=100000`,
+			headers: authorised(aliceToken),
+		});
+		expect(response.statusCode).toBe(200);
+		expect((response.json() as VersionsResponse).versions.length).toBeLessThanOrEqual(200);
+	});
+
+	test('ignores a junk limit rather than returning zero rows', async () => {
+		await commitVersion(vaultId, 'bWV0YQ==');
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/files/${fileId}/versions?limit=abc&offset=-5`,
+			headers: authorised(aliceToken),
+		});
+		expect(response.statusCode).toBe(200);
+		expect((response.json() as VersionsResponse).versions.length).toBeGreaterThan(0);
+	});
+
+	test('returns the committed meta blob with each version, newest first', async () => {
+		await commitVersion(vaultId, 'bWV0YQ==');
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/files/${fileId}/versions`,
+			headers: authorised(aliceToken),
+		});
+		expect(response.statusCode).toBe(200);
+
+		const body = response.json() as VersionsResponse;
+		expect(body.versions).toHaveLength(1);
+		expect(body.versions[0]?.metaBlob).toBe('bWV0YQ==');
+		expect(body.hasMore).toBe(false);
+	});
+
+	test('pages oldest after newest with hasMore set', async () => {
+		const first = await commitVersion(vaultId, 'bWV0YQ==');
+		await commitVersion(vaultId, 'bW1ldGE=', first);
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/files/${fileId}/versions?limit=1&offset=0`,
+			headers: authorised(aliceToken),
+		});
+
+		const body = response.json() as VersionsResponse;
+		expect(body.versions).toHaveLength(1);
+		expect(body.hasMore).toBe(true);
+	});
+
+	test('never lists versions of another owner vault even with the same file id', async () => {
+		await commitVersion(vaultId, 'bWV0YQ==');
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${bobVaultId}/files/${fileId}/versions`,
+			headers: authorised(bobToken),
+		});
+
+		expect((response.json() as VersionsResponse).versions).toEqual([]);
+	});
+});

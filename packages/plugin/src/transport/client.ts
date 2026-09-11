@@ -207,9 +207,20 @@ export class ApiClient {
 		});
 	}
 
-	versions(vaultId: string, fileId: string): Promise<VersionsResponse> {
+	versions(
+		vaultId: string,
+		fileId: string,
+		window?: { limit?: number; offset?: number },
+	): Promise<VersionsResponse> {
+		const query: Record<string, string | number> = {};
+		if (window?.limit !== undefined) {
+			query.limit = window.limit;
+		}
+		if (window?.offset !== undefined) {
+			query.offset = window.offset;
+		}
 		return this.#call<VersionsResponse>({
-			path: `/v1/vaults/${vaultId}/files/${fileId}/versions`,
+			path: withQuery(`/v1/vaults/${vaultId}/files/${fileId}/versions`, query),
 			method: 'GET',
 		});
 	}

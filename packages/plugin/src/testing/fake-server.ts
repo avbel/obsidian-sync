@@ -19,6 +19,8 @@ interface StoredVersion {
 	size: number;
 	deviceId: string;
 	createdAt: number;
+	/** Stands in for the server's rowid: the DESC tiebreak within one millisecond. */
+	ordinal: number;
 }
 
 interface StoredChange {
@@ -98,6 +100,9 @@ export class FakeServer implements Requester {
 			return this.state();
 		}
 		if (parts[3] === 'files' && parts[4] !== undefined) {
+			if (parts[5] === 'versions' && method === 'GET') {
+				return this.listVersions(parts[4], url.searchParams);
+			}
 			if (method === 'POST') {
 				return this.commit(parts[4], body);
 			}
@@ -140,6 +145,26 @@ export class FakeServer implements Requester {
 		});
 	}
 
+	private listVersions(fileId: string, params: URLSearchParams): SyncResponse {
+		const limit = Number(params.get('limit') ?? '50');
+		const offset = Number(params.get('offset') ?? '0');
+		const all = [...this.versions.values()]
+			.filter((version) => version.fileId === fileId)
+			.sort((left, right) => right.createdAt - left.createdAt || right.ordinal - left.ordinal);
+		const page = all.slice(offset, offset + limit);
+		return this.json(200, {
+			versions: page.map((version) => ({
+				versionId: version.versionId,
+				parentVersion: version.parentVersion,
+				metaBlob: version.metaBlob,
+				size: version.size,
+				deviceId: version.deviceId,
+				createdAt: version.createdAt,
+			})),
+			hasMore: offset + page.length < all.length,
+		});
+	}
+
 	private state(): SyncResponse {
 		return this.json(200, {
 			files: [...this.files.values()]
@@ -179,6 +204,7 @@ export class FakeServer implements Requester {
 			size: request.size,
 			deviceId: request.deviceId,
 			createdAt: Date.now(),
+			ordinal: this.versionCounter,
 		});
 		this.seq += 1;
 		this.log.push({
