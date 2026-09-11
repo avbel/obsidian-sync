@@ -1,0 +1,12 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": "./src",
+		"outDir": "./typecheck",
+		"lib": ["es2025", "dom", "dom.iterable"],
+		"types": ["node"],
+		"noEmit": true
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["src/**/*.test.ts", "src/__mocks__/**"]
+}

@@ -617,12 +617,22 @@ A CRDT would merge automatically and never produce a conflict file, but requires
 Rules out replicas behind a load balancer. Accepted deliberately: the target is one self-hosted server for a small number of users. Postgres is the escape hatch if that changes.
 
 ### D4 — Path-derived identity, so history does not survive a rename
-
 `fileId = HMAC(K_name, path)` makes identity converge automatically: two devices that independently create the same path agree on the same record with no coordination, and a fresh device derives every identity locally without a lookup table.
 
 The alternative — assigning each file a random UUID at creation and keying on `HMAC(K_name, uuid)` — would let history follow a rename, and would make renames metadata-only. It was rejected for this version because it breaks convergence: two devices creating the same path while offline mint different UUIDs and the vault ends up with duplicates, which is a worse failure than a restarted version chain. It also requires a path-to-UUID map on every device before any file can be addressed.
 
 The cost is accepted and stated in §4.2. If history across renames later matters more than convergence, the migration is a re-keying pass rather than a redesign, because the envelope format is versioned.
+
+### D5 — Position integrity lives in the version meta, not per-chunk AAD
+
+**Amended 2026-09-11 during implementation.** §4.4 as originally written is self-contradictory: a per-chunk `AAD = fileId ‖ versionId ‖ chunkIndex` makes each ciphertext depend on file/version/position, but the same section's plaintext-addressed `blobAddress = HMAC(K_content, plaintext)` requires one shared blob per identical plaintext across every file and version — which is precisely the property §5.1 relies on to share unchanged chunks across version history. One address maps to one stored blob, which cannot satisfy many different AADs; the "reuses the stored blob together with its stored nonce" line also contradicts the random `nonce ‖ ciphertext ‖ tag` layout, since only a deterministic nonce reproduces an identical blob.
+
+The reconciliation keeps every §4.4 property that is actually achievable:
+
+- The chunk nonce is derived deterministically from the plaintext (`nonce = HMAC(K_content, 0x02 ‖ chunk)[0:12]`) and the address as `HMAC(K_content, 0x01 ‖ chunk)`, so a stored blob is a pure function of its content — dedup, version-history sharing, and the `blobs/check` optimisation all work.
+- Position integrity moves to the version layer, where it is verifiable: the ordered chunk-address list lives inside the encrypted meta envelope, authenticated under `K_content` with `AAD = fileId`. On pull the client decrypts each chunk and recomputes its address, rejecting any that does not match the authenticated list. A server that reorders, drops, or splices a chunk is therefore detected by the client rather than surfacing as corrupt vault bytes — the exact threat §4.4 cited — and cross-file splice additionally fails the meta's `fileId` AAD.
+
+The server is unaffected either way; it never decrypts.
 
 ### R1 — `requestUrl` has no timeout parameter
 

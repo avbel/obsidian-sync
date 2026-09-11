@@ -1,0 +1,19 @@
+{
+	"name": "@obsidian-sync/plugin",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "End-to-end encrypted vault sync for Obsidian",
+	"main": "main.js",
+	"scripts": {
+		"build": "node esbuild.config.mjs production",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"@obsidian-sync/protocol": "workspace:*"
+	},
+	"devDependencies": {
+		"esbuild": "^0.28.0",
+		"obsidian": "^1.13.1"
+	}
+}

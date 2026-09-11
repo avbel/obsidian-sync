@@ -1,0 +1,36 @@
+.obsidian-sync-status {
+	padding: 8px;
+	font-size: var(--font-ui-small);
+}
+
+.obsidian-sync-status__header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-weight: var(--font-semibold);
+	margin-bottom: 8px;
+}
+
+.obsidian-sync-status__icon {
+	display: inline-flex;
+}
+
+.obsidian-sync-status__last {
+	color: var(--text-muted);
+	margin-bottom: 12px;
+}
+
+.obsidian-sync-status__conflicts {
+	margin-bottom: 12px;
+}
+
+.obsidian-sync-status__conflict {
+	color: var(--text-error);
+	padding-left: 8px;
+}
+
+.obsidian-sync-status__actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
