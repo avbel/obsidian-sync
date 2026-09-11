@@ -1,0 +1,22 @@
+services:
+  sync:
+    image: ghcr.io/avbel/obsidian-sync-server:main
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    volumes:
+      - data:/data
+    environment:
+      SYNC_USER_ALICE: ${SYNC_USER_ALICE:?set SYNC_USER_ALICE in .env}
+      VERSION_RETENTION_DAYS: 90
+      VERSION_RETENTION_MIN: 10
+      LOG_LEVEL: info
+    healthcheck:
+      test: ['CMD', '/nodejs/bin/node', '-e', "fetch('http://127.0.0.1:3000/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  data:

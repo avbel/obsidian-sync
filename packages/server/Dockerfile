@@ -1,5 +1,7 @@
 FROM node:26-trixie-slim AS build
-RUN corepack enable
+# Corepack is no longer bundled with Node 25+; installing it keeps the pnpm
+# version authoritative in package.json's packageManager field.
+RUN npm install --global corepack@latest && corepack enable
 WORKDIR /src
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./

@@ -8,19 +8,169 @@ The server stores ciphertext and never holds a key. It cannot read your notes, t
 
 ---
 
-## What it does
+## Features
 
-- Syncs a whole vault — markdown, attachments, and `.obsidian` configuration — between any number of devices.
-- End-to-end encrypted with a passphrase that never leaves your device.
-- Three-way merge over a cached common ancestor, so two devices editing different parts of the same note converge instead of one overwriting the other. Obsidian's own Sync uses last-write-wins.
-- Chunked, content-addressed storage: editing one word in a 40 MB PDF uploads one chunk, and version history shares unchanged chunks.
-- Near-real-time propagation over a WebSocket or long-poll nudge channel, with interval polling as a fallback.
-- Selective sync by category and by folder, with a per-device file-size ceiling.
-- Version history per file, retained by age and by minimum count.
+### Sync
+
+| | |
+|---|---|
+| **Whole-vault coverage** | Markdown, attachments, and `.obsidian` configuration — themes, snippets, and other plugins' `data.json`. |
+| **Any number of devices** | Desktop (Windows, macOS, Linux), iOS, and Android from one plugin build. |
+| **Near-real-time** | A WebSocket push channel over `https://`, a held-open long-poll over `http://`, and fixed-interval polling as an always-available fallback. The channel carries only sequence numbers, so switching between them is invisible to the sync engine. |
+| **Offline-correct** | Edit on a plane, land, and converge. The cursor advances only after a batch is applied, so a crash replays rather than skips, and a delete that never reached the server is recovered by reconciling the index against the vault. |
+| **Selective sync** | Per-device toggles for markdown, attachments, vault configuration, themes, snippets, and plugin settings; a comma-separated folder exclusion list; and a maximum file size above which files are skipped. Changes apply to a running sync without a restart. |
+| **Version history** | Every commit is a version, retained by age (default 90 days) and by a per-file minimum (default 10) regardless of age. |
+
+### Encryption
+
+| | |
+|---|---|
+| **End-to-end** | The server stores ciphertext and never holds a key. Your passphrase is never transmitted. |
+| **Encrypted paths** | File names and folder structure are encrypted too. The server keys its records by `HMAC(K_name, path)` and cannot invert it. |
+| **AES-256-GCM content** | Under a key derived from your passphrase via PBKDF2-SHA-512 (650,000 iterations) and HKDF-SHA-256. |
+| **Tamper-evident** | The ordered chunk list is authenticated inside the metadata envelope and re-verified on pull, so a server that reorders, drops, or splices a chunk is detected by the client rather than surfacing as corrupt notes. |
+
+### Conflicts
+
+| | |
+|---|---|
+| **Three-way merge** | Two devices editing different parts of the same note both keep their edits, merged against a cached common ancestor. Obsidian's own Sync uses last-write-wins. |
+| **Nothing is destroyed** | An unmergeable edit is copied out as `note (conflict YYYY-MM-DD HH-mm-ss).md` before the remote version takes the file. A remote delete never beats a local edit. |
+| **Server never merges** | It cannot read the bytes. A stale commit is rejected with `409`; the client pulls, merges locally, and retries. |
+
+### Storage and operations
+
+| | |
+|---|---|
+| **Chunked and deduplicated** | Files are split into 4 MiB chunks addressed by content, so editing one word in a 40 MB PDF uploads one chunk and version history shares everything unchanged. |
+| **Cheap renames** | Chunks are reused verbatim; nothing is re-uploaded. |
+| **One small container** | `gcr.io/distroless/nodejs26-debian13:nonroot` — no shell, no package manager, non-root, `amd64` and `arm64`. Storage is `node:sqlite`, built into Node, so there are no native modules to compile. |
+| **No accounts** | Users are bearer tokens in environment variables. No registration, no password reset, no session state. |
 
 ### Non-goals
 
-Live collaborative editing (this is not a CRDT), multi-tenant SaaS, server-side search or a web UI (end-to-end encryption forecloses all three), and horizontal scale-out.
+Live collaborative editing (this is not a CRDT — sync converges after edits settle), multi-tenant SaaS, server-side search or a web UI (end-to-end encryption forecloses all three), and horizontal scale-out.
+
+---
+
+## Installation
+
+Two halves: a server you run once, and a plugin you install into each vault. Both are needed.
+
+### 1. Run the server
+
+The server is a single process. Running two replicas against one SQLite file would corrupt it.
+
+First, generate a token for each user — at least 32 characters, or startup fails:
+
+```bash
+openssl rand -hex 32
+```
+
+#### Docker Compose (recommended)
+
+```bash
+curl -O https://raw.githubusercontent.com/avbel/obsidian-sync/main/compose.yaml
+echo "SYNC_USER_ALICE=$(openssl rand -hex 32)" > .env
+docker compose up -d
+docker compose logs -f sync
+```
+
+Your token is now in `.env`; you will paste it into the plugin. Add more users by adding more `SYNC_USER_<NAME>` variables to the `environment:` block.
+
+#### Docker
+
+```bash
+docker volume create obsidian-sync-data
+docker run -d --name obsidian-sync \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -v obsidian-sync-data:/data \
+  -e SYNC_USER_ALICE="$(openssl rand -hex 32)" \
+  ghcr.io/avbel/obsidian-sync-server:main
+```
+
+| Tag | Tracks |
+|---|---|
+| `main` | Every push to the default branch. **Use this for now** — there is no tagged release yet. |
+| `latest` | The newest `v*` tag, once one exists. |
+| `1.2.3`, `1.2` | A specific release. |
+| `sha-<short>` | A specific commit. |
+
+#### From source
+
+Requires Node.js 26+ and pnpm.
+
+```bash
+git clone https://github.com/avbel/obsidian-sync.git
+cd obsidian-sync
+pnpm install
+pnpm build
+SYNC_USER_ALICE=<token> DATA_DIR=./data node packages/server/dist/index.js
+```
+
+#### Check it is up
+
+```bash
+curl http://localhost:3000/v1/health
+curl -H "Authorization: Bearer <token>" http://localhost:3000/v1/me
+```
+
+#### Reaching it from your devices
+
+Put the server on a [Tailscale](https://tailscale.com) tailnet rather than the public internet, and use its tailnet address (`http://100.x.y.z:3000`) as the server URL. The tokens are pre-shared and there is no rate limiting or account recovery by design — the tailnet is the outer perimeter and the token is the inner one.
+
+Over plain `http://` the plugin uses long-poll, because a mobile WebView blocks `ws://` to a tailnet address. Over `https://` — behind a reverse proxy with a real certificate, or via Tailscale Serve — it upgrades to a WebSocket and falls back to long-poll on failure. Both are correct; `https://` is just faster to notice a change.
+
+Back up `/data` (or the named volume). It holds the SQLite database and every encrypted chunk.
+
+### 2. Install the plugin
+
+Requires Obsidian **1.13.2** or newer. There is no community-plugin listing yet, and no tagged release — so **build from source** for now.
+
+#### From source
+
+```bash
+git clone https://github.com/avbel/obsidian-sync.git
+cd obsidian-sync
+pnpm install
+pnpm --filter @obsidian-sync/protocol build
+pnpm --filter @obsidian-sync/plugin build
+
+mkdir -p <vault>/.obsidian/plugins/obsidian-sync
+cp packages/plugin/{main.js,manifest.json,styles.css} \
+   <vault>/.obsidian/plugins/obsidian-sync/
+```
+
+Then reload Obsidian and enable **Obsidian Sync** under Settings → Community plugins.
+
+#### From a release, once one is tagged
+
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [releases page](https://github.com/avbel/obsidian-sync/releases).
+2. Create `<vault>/.obsidian/plugins/obsidian-sync/` and put all three files in it.
+3. Reload Obsidian and enable the plugin.
+
+Or install [BRAT](https://github.com/TfTHacker/obsidian42-brat) and **Add beta plugin** with `avbel/obsidian-sync`, which keeps it updated for you.
+
+On iOS and Android the plugin folder lives inside the vault, so the easiest route is to install on a desktop vault first and let the files reach the phone, or use a file manager that can see the vault directory.
+
+### 3. Connect the first device
+
+In Settings → Obsidian Sync:
+
+1. **Server URL** — `http://100.x.y.z:3000`, your tailnet address.
+2. **Auth token** — the value of `SYNC_USER_ALICE`. Press **Test**; it should report your username and vault count.
+3. **Vault name** — any name. It is created on the server on first sync.
+4. **Passphrase** — this encrypts everything. Choose it carefully; see the warning below.
+5. **Enable sync**.
+
+The token and passphrase go into Obsidian's `secretStorage`, never into `data.json` — that file lives inside the vault and would itself be synced.
+
+> **Your passphrase is not recoverable.** It never reaches the server, so nobody can reset it. Losing it means losing the remote copy of the vault. Record it somewhere safe before you sync anything you care about.
+
+### 4. Add more devices
+
+Install the plugin in the new vault and enter the **same server URL, token, vault name, and passphrase**. A different passphrase produces a vault the other devices cannot decrypt. The first sync downloads everything; after that only changes move.
 
 ---
 
@@ -67,35 +217,7 @@ Full rationale, including the decisions and their trade-offs, is in [`docs/specs
 
 ---
 
-## Running the server
-
-The server is a single process. Running two replicas against one SQLite file would corrupt it; Postgres is the migration path if that ever matters.
-
-### Docker
-
-```bash
-docker run -d --name obsidian-sync \
-  -p 3000:3000 \
-  -v obsidian-sync-data:/data \
-  -e SYNC_USER_ALICE="$(openssl rand -hex 32)" \
-  ghcr.io/avbel/obsidian-sync-server:latest
-```
-
-The image is `gcr.io/distroless/nodejs26-debian13:nonroot` — no shell, no package manager, non-root, `linux/amd64` and `linux/arm64`.
-
-### From source
-
-```bash
-pnpm install
-pnpm build
-SYNC_USER_ALICE=<token> DATA_DIR=./data node packages/server/dist/index.js
-```
-
-### Exposing it
-
-Put the server on a [Tailscale](https://tailscale.com) tailnet rather than the public internet. The auth tokens are pre-shared and there is no rate limiting, account recovery, or session management by design — the tailnet is the outer perimeter and the token is the inner one.
-
-Over plain `http://` the plugin uses long-poll, because a mobile WebView blocks `ws://` to a tailnet address. Over `https://` it upgrades to a WebSocket and falls back to long-poll on failure.
+## Server reference
 
 ### Configuration
 
@@ -135,23 +257,7 @@ All routes require `Authorization: Bearer <token>` except health.
 
 ---
 
-## Installing the plugin
-
-No community-plugin listing yet. Install manually or through [BRAT](https://github.com/TfTHacker/obsidian42-brat).
-
-Manually, per vault:
-
-1. Download `main.js`, `manifest.json`, and `styles.css` from a [release](https://github.com/avbel/obsidian-sync/releases).
-2. Put them in `<vault>/.obsidian/plugins/obsidian-sync/`.
-3. Reload Obsidian and enable **Obsidian Sync** in Community plugins.
-
-Requires Obsidian **1.13.2** or newer, on any platform.
-
-Then, in the plugin's settings tab: set the server URL and token, test the connection, choose a vault name and a passphrase, and turn sync on. The token and passphrase go into Obsidian's `secretStorage`, never into `data.json` — that file lives inside the vault and would itself be synced.
-
-> **Your passphrase is not recoverable.** It never reaches the server, so nobody can reset it. Losing it means losing the remote copy of the vault. Enter it carefully on the first device and record it somewhere safe.
-
-### Conflict handling
+## Conflict handling
 
 | Situation | Resolution |
 |---|---|
@@ -164,7 +270,7 @@ Then, in the plugin's settings tab: set the server URL and token, test the conne
 
 No path through that table destroys data without an explicit choice.
 
-### What is never synced
+## What is never synced
 
 `workspace.json` and `workspace-mobile.json` (they describe device-local pane layout), and this plugin's own state directory.
 
