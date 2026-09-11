@@ -7,7 +7,7 @@ export function joinLines(lines: string[]): string {
 }
 
 /** 'equal' advances both, 'delete' advances a only, 'insert' advances b only. */
-type DiffOp = 'equal' | 'delete' | 'insert';
+export type DiffOp = 'equal' | 'delete' | 'insert';
 
 function lcsOps(a: string[], b: string[]): DiffOp[] {
 	const rows = a.length + 1;
@@ -52,6 +52,38 @@ function lcsOps(a: string[], b: string[]): DiffOp[] {
 		j += 1;
 	}
 	return ops;
+}
+
+export interface DiffRow {
+	op: DiffOp;
+	text: string;
+}
+
+/**
+ * Line diff over the same LCS the three-way merge uses, so a preview can never
+ * disagree with what the merge would do. Quadratic in line count — callers cap
+ * the input; see preview.ts.
+ */
+export function diffLines(beforeText: string, afterText: string): DiffRow[] {
+	const before = splitLines(beforeText);
+	const after = splitLines(afterText);
+	const rows: DiffRow[] = [];
+	let beforeIndex = 0;
+	let afterIndex = 0;
+
+	for (const op of lcsOps(before, after)) {
+		if (op === 'insert') {
+			rows.push({ op, text: after[afterIndex] ?? '' });
+			afterIndex += 1;
+			continue;
+		}
+		rows.push({ op, text: before[beforeIndex] ?? '' });
+		beforeIndex += 1;
+		if (op === 'equal') {
+			afterIndex += 1;
+		}
+	}
+	return rows;
 }
 
 /** A replacement of base[baseStart,baseEnd) with `lines`. */

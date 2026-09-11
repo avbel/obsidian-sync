@@ -1,14 +1,16 @@
 import type { FileState } from '@obsidian-sync/protocol';
-import { hashBytes } from '../crypto/encoding.js';
+import { bytesToText, hashBytes, textToBytes } from '../crypto/encoding.js';
 import type { PurposeKeys } from '../crypto/keys.js';
 import type { BaseCache } from '../state/base-cache.js';
 import type { FileIndex } from '../state/file-index.js';
 import type { LocalState } from '../state/local-state.js';
 import { type ApiClient, ConflictError } from '../transport/client.js';
 import { decodeFile, encodeFile } from './codec.js';
+import { copyStamp, uniqueCopyPath } from './copy.js';
 import { merge3 } from './merge.js';
 import { planReconcile, type ReconcileSummary } from './reconcile.js';
 import { isPathIncluded, type SelectiveSyncOptions } from './selective.js';
+import { isTextPath } from './text.js';
 import { StaleWriteError, type VaultAdapter, type VaultFile } from './vault.js';
 
 export type { ReconcileSummary } from './reconcile.js';
@@ -51,31 +53,6 @@ interface RemoteVersion {
 	mtime: number;
 	chunks: string[];
 	headVersion: string;
-}
-
-const textExtensions = [
-	'.md',
-	'.markdown',
-	'.txt',
-	'.csv',
-	'.json',
-	'.css',
-	'.js',
-	'.html',
-	'.yml',
-	'.yaml',
-];
-
-function isTextPath(path: string): boolean {
-	return textExtensions.some((extension) => path.endsWith(extension));
-}
-
-function bytesToText(bytes: Uint8Array): string {
-	return new TextDecoder().decode(bytes);
-}
-
-function textToBytes(text: string): Uint8Array {
-	return new TextEncoder().encode(text);
 }
 
 /**
@@ -481,13 +458,11 @@ export class SyncEngine {
 	}
 
 	async #conflictCopy(path: string, localBytes: Uint8Array): Promise<void> {
-		const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, ' ').replace(/ /g, '-');
-		const extension = /\.[^./]+$/.exec(path)?.[0] ?? '';
-		const stem = `${path.slice(0, path.length - extension.length)} (conflict ${stamp})`;
-		let copyPath = `${stem}${extension}`;
-		for (let suffix = 2; await this.#deps.vault.exists(copyPath); suffix += 1) {
-			copyPath = `${stem} ${suffix}${extension}`;
-		}
+		const copyPath = await uniqueCopyPath(
+			(candidate) => this.#deps.vault.exists(candidate),
+			path,
+			`conflict ${copyStamp(Date.now())}`,
+		);
 		await this.#deps.vault.write(copyPath, localBytes);
 		const record: ConflictRecord = { path, conflictCopyPath: copyPath };
 		this.#status('conflict');

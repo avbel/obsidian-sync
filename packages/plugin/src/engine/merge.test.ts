@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { merge3 } from './merge.js';
+import { diffLines, merge3 } from './merge.js';
 
 describe('merge3', () => {
 	test('both sides unchanged returns base', () => {
@@ -55,5 +55,51 @@ describe('merge3', () => {
 		// merge3 always receives a base; when the caller has no base it does not call
 		// merge3 at all. This asserts the contract by showing base === local === remote.
 		expect(merge3('x\n', 'x\n', 'x\n')).toEqual({ ok: true, text: 'x\n' });
+	});
+});
+
+describe('diffLines', () => {
+	test('returns equal rows for identical input', () => {
+		expect(diffLines('one\ntwo\n', 'one\ntwo\n')).toEqual([
+			{ op: 'equal', text: 'one' },
+			{ op: 'equal', text: 'two' },
+			{ op: 'equal', text: '' },
+		]);
+	});
+
+	test('returns trailing inserts for an append', () => {
+		expect(diffLines('one\n', 'one\ntwo\n')).toEqual([
+			{ op: 'equal', text: 'one' },
+			{ op: 'insert', text: 'two' },
+			{ op: 'equal', text: '' },
+		]);
+	});
+
+	test('returns deletes for removed lines', () => {
+		expect(diffLines('one\ntwo\n', 'one\n')).toEqual([
+			{ op: 'equal', text: 'one' },
+			{ op: 'delete', text: 'two' },
+			{ op: 'equal', text: '' },
+		]);
+	});
+
+	test('represents a replacement as a delete followed by an insert', () => {
+		expect(diffLines('one\ntwo\n', 'one\nthree\n')).toEqual([
+			{ op: 'equal', text: 'one' },
+			{ op: 'delete', text: 'two' },
+			{ op: 'insert', text: 'three' },
+			{ op: 'equal', text: '' },
+		]);
+	});
+
+	test('terminates for empty input on either side', () => {
+		expect(diffLines('', 'one\n')).toEqual([
+			{ op: 'insert', text: 'one' },
+			{ op: 'equal', text: '' },
+		]);
+		expect(diffLines('one\n', '')).toEqual([
+			{ op: 'delete', text: 'one' },
+			{ op: 'equal', text: '' },
+		]);
 	});
 });
