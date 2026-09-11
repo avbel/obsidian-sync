@@ -62,6 +62,26 @@
 	}
 }
 
+.obsidian-sync-conflict__sides {
+	display: flex;
+	gap: 12px;
+	flex-wrap: wrap;
+	margin-bottom: 12px;
+}
+
+.obsidian-sync-conflict__side {
+	flex: 1 1 200px;
+	padding: 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	word-break: break-word;
+}
+
+.obsidian-sync-conflict__meta {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
 /*
  * Obsidian's own core Sync plugin keeps a permanently crossed-out red glyph in the
  * status bar when there is no subscription. Class names verified against Obsidian
