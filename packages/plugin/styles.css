@@ -23,6 +23,10 @@
 .obsidian-sync-status__conflict {
 	color: var(--text-error);
 	padding-left: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
 }
 
 .obsidian-sync-status__actions {

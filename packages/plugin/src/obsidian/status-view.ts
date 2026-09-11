@@ -47,9 +47,13 @@ export class SyncStatusView extends ItemView {
 		const conflicts = this.#plugin.pendingConflicts;
 		if (conflicts.length > 0) {
 			const list = root.createDiv({ cls: 'obsidian-sync-status__conflicts' });
-			list.createDiv({ text: `${conflicts.length} conflict(s):` });
+			list.createDiv({ text: `${conflicts.length} unresolved conflict(s):` });
 			for (const conflict of conflicts) {
-				list.createDiv({ cls: 'obsidian-sync-status__conflict', text: conflict.path });
+				const row = list.createDiv({ cls: 'obsidian-sync-status__conflict' });
+				row.createSpan({ text: conflict.path });
+				row
+					.createEl('button', { text: 'Resolve' })
+					.addEventListener('click', () => this.#plugin.openConflict(conflict));
 			}
 		}
 

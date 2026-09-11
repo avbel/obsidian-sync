@@ -10,7 +10,13 @@ import {
 } from 'obsidian';
 import { derivePurposeKeys, type PurposeKeys } from './crypto/keys.js';
 import { pluginId } from './engine/selective.js';
-import { type ConflictRecord, type EngineStatus, SyncEngine } from './engine/sync.js';
+import {
+	type ConflictChoice,
+	type ConflictRecord,
+	type EngineStatus,
+	SyncEngine,
+} from './engine/sync.js';
+import { ConflictModal } from './obsidian/conflict-modal.js';
 import { SyncSettingTab } from './obsidian/settings-tab.js';
 import { createLocalStateStore, createStateStorage } from './obsidian/state-store.js';
 import { statusIcon, statusIconClass, statusTooltip } from './obsidian/status-display.js';
@@ -25,6 +31,7 @@ import {
 	toSelectiveSyncOptions,
 } from './settings.js';
 import { BaseCache } from './state/base-cache.js';
+import { ConflictList } from './state/conflict-list.js';
 import { FileIndex } from './state/file-index.js';
 import { LocalState } from './state/local-state.js';
 import { ApiClient } from './transport/client.js';
@@ -46,7 +53,12 @@ export default class SyncPlugin extends Plugin {
 	settings: PluginSettings = { ...defaultSettings };
 	lastStatus: EngineStatus = 'idle';
 	lastSyncAt = 0;
-	pendingConflicts: ConflictRecord[] = [];
+
+	#conflicts: ConflictList | null = null;
+
+	get pendingConflicts(): ConflictRecord[] {
+		return this.#conflicts?.all() ?? [];
+	}
 
 	#engine: SyncEngine | null = null;
 	#keys: PurposeKeys | null = null;
@@ -65,6 +77,7 @@ export default class SyncPlugin extends Plugin {
 		}
 
 		await this.loadSettings();
+		this.#conflicts = new ConflictList(createLocalStateStore(this.app));
 
 		this.addSettingTab(new SyncSettingTab(this));
 		this.addRibbonIcon('refresh-cw', 'Open sync status', () => void this.openStatusView());
@@ -79,13 +92,23 @@ export default class SyncPlugin extends Plugin {
 
 		this.#applyCoreSyncVisibility();
 		this.#registerForegroundTriggers();
+		this.app.workspace.onLayoutReady(() => {
+			void this.#afterLayoutReady();
+		});
+	}
+
+	async #afterLayoutReady(): Promise<void> {
+		// Obsidian populates its file cache after layout. Pruning any earlier sees an
+		// empty vault and drops every live conflict.
+		const vault = createVaultAdapter(this.app);
+		await this.#conflicts?.prune((path) => vault.exists(path));
+		this.#renderStatusBar();
+		this.#refreshStatusView();
 		if (this.settings.enabled) {
-			// Obsidian populates its file cache after layout. Starting the engine before
-			// that makes every tracked note look absent, which the push path reads as a
-			// delete and propagates to every other device.
-			this.app.workspace.onLayoutReady(() => {
-				void this.reloadEngine();
-			});
+			// Same reason the engine starts here rather than in onload(): starting it
+			// before the cache is populated makes every tracked note look absent, which
+			// the push path reads as a delete and propagates to every other device.
+			await this.reloadEngine();
 		}
 	}
 
@@ -127,6 +150,18 @@ export default class SyncPlugin extends Plugin {
 			id: 'open-status',
 			name: 'Open sync status',
 			callback: () => void this.openStatusView(),
+		});
+		this.addCommand({
+			id: 'resolve-conflicts',
+			name: 'Resolve sync conflicts',
+			callback: () => {
+				const next = this.pendingConflicts[0];
+				if (next === undefined) {
+					new Notice('No unresolved sync conflicts.');
+					return;
+				}
+				this.openConflict(next);
+			},
 		});
 		this.addCommand({
 			id: 'reconcile',
@@ -233,8 +268,13 @@ export default class SyncPlugin extends Plugin {
 			deviceId,
 			onStatus: (status) => this.#setStatus(status),
 			onConflict: (conflict) => {
-				this.pendingConflicts.push(conflict);
-				new Notice(`Conflict on ${conflict.path}; local copy saved alongside it.`);
+				this.#conflicts?.add(conflict);
+				this.#renderStatusBar();
+				this.#refreshStatusView();
+				const notice = new Notice(`Conflict on ${conflict.path} — click to resolve.`, 15000);
+				notice.noticeEl.addEventListener('click', () => {
+					this.openConflict(conflict);
+				});
 			},
 		});
 		this.vaultIdForNudge = vault.id;
@@ -367,6 +407,47 @@ export default class SyncPlugin extends Plugin {
 
 	async reconcile(): Promise<void> {
 		await this.requestSync();
+	}
+
+	openConflict(record: ConflictRecord): void {
+		new ConflictModal(this.app, record, (choice) => this.resolveConflict(record, choice)).open();
+	}
+
+	async resolveConflict(record: ConflictRecord, choice: ConflictChoice): Promise<void> {
+		if (this.#engine === null) {
+			new Notice('Sync is not running, so this conflict cannot be resolved yet.');
+			return;
+		}
+		// A resolution writes the same file a running sync may be mid-apply on.
+		if (this.#syncing !== null) {
+			await this.#syncing;
+		}
+
+		try {
+			const outcome = await this.#engine.resolveConflict(record, choice);
+			if (outcome === 'stale') {
+				new Notice(`${record.path} changed just now — open it and resolve again.`);
+				return;
+			}
+			this.#conflicts?.remove(record.path);
+			// The engine raises 'conflict' and only a later sync lowers it, so without this
+			// the warning glyph outlives the last resolved conflict.
+			if (this.lastStatus === 'conflict' && this.pendingConflicts.length === 0) {
+				this.#setStatus('idle');
+			}
+			if (outcome === 'missing-copy') {
+				new Notice(`The conflict copy for ${record.path} is gone; nothing to resolve.`);
+			} else if (choice === 'mine') {
+				void this.requestSync();
+			}
+		} catch (error) {
+			this.#setStatus('error');
+			this.#logError(error);
+			new Notice(`Could not resolve ${record.path}: ${(error as Error).message}`);
+		} finally {
+			this.#renderStatusBar();
+			this.#refreshStatusView();
+		}
 	}
 
 	async testConnection(): Promise<void> {

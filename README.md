@@ -40,6 +40,7 @@ The server stores ciphertext and never holds a key. It cannot read your notes, t
 |---|---|
 | **Three-way merge** | Two devices editing different parts of the same note both keep their edits, merged against a cached common ancestor. Obsidian's own Sync uses last-write-wins. |
 | **Nothing is destroyed** | An unmergeable edit is copied out as `note (conflict YYYY-MM-DD HH-mm-ss).md` before the remote version takes the file. A remote delete never beats a local edit. |
+| **Resolution is yours** | An unmergeable edit is copied aside and listed in the sync status view until you choose *keep mine*, *keep theirs*, or *keep both* — from the sidebar, the conflict notice, or a command. The list survives a restart. There is no diff view yet — the modal opens both files side by side instead. |
 | **Server never merges** | It cannot read the bytes. A stale commit is rejected with `409`; the client pulls, merges locally, and retries. |
 
 ### Storage and operations
@@ -320,7 +321,6 @@ The design describes more than is built. Currently missing:
 
 - First-run setup wizard, and the *Verify passphrase* action.
 - Version history and restore UI (the server API exists; the plugin does not call it).
-- Conflict resolution modal — conflicts produce a copy and a notice, but no interactive resolve.
 - Full reconcile against `GET /state`. The *Full reconcile* command currently runs an ordinary incremental sync.
 - Durable, restart-surviving offline queue. Pending deletes are held in memory; a lost delete is recovered on the next sync by reconciling the index against the vault, so correctness holds, but the queue itself is not persisted.
 
