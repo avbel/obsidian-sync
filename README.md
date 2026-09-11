@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="obsidian-sync" width="220">
+</p>
+
 # obsidian-sync
 
 A self-hosted replacement for Obsidian's paid Sync service: an Obsidian plugin (desktop, iOS, Android) plus a synchronisation server, with end-to-end encryption, full-vault coverage, version history, and near-real-time propagation.
