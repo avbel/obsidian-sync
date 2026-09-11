@@ -1,5 +1,4 @@
 import {
-	type EventRef,
 	Notice,
 	Platform,
 	Plugin,
@@ -38,6 +37,7 @@ import {
 const minimumApiVersion = '1.13.2';
 const hideCoreSyncClass = 'obsidian-sync-hide-core-sync';
 const syncWatchdogMs = 5 * 60 * 1000;
+const foregroundThrottleMs = 1000;
 
 export default class SyncPlugin extends Plugin {
 	settings: PluginSettings = { ...defaultSettings };
@@ -50,7 +50,7 @@ export default class SyncPlugin extends Plugin {
 	#nudge: NudgeSource | null = null;
 	#watcher: DebouncedWatcher | null = null;
 	#statusBarItem: HTMLElement | null = null;
-	#eventRefs: EventRef[] = [];
+	#lastForegroundAt = 0;
 	#pendingDeletes = new Set<string>();
 	#syncing: Promise<void> | null = null;
 	#resyncRequested = false;
@@ -74,7 +74,7 @@ export default class SyncPlugin extends Plugin {
 		}
 
 		this.#applyCoreSyncVisibility();
-		this.registerDomElements();
+		this.#registerForegroundTriggers();
 		if (this.settings.enabled) {
 			// Obsidian populates its file cache after layout. Starting the engine before
 			// that makes every tracked note look absent, which the push path reads as a
@@ -88,10 +88,6 @@ export default class SyncPlugin extends Plugin {
 	override async onunload(): Promise<void> {
 		document.body.classList.remove(hideCoreSyncClass);
 		this.#stopEngine();
-		for (const ref of this.#eventRefs) {
-			this.app.vault.offref(ref);
-		}
-		this.#eventRefs = [];
 	}
 
 	secretOrEmpty(id: string): string {
@@ -135,18 +131,42 @@ export default class SyncPlugin extends Plugin {
 		});
 	}
 
-	registerDomElements(): void {
-		// Foregrounding on mobile is a reconcile trigger (§2.3): a dead live channel
-		// is reconstructed from the durable cursor, not trusted to have delivered.
-		if (Platform.isMobileApp) {
-			this.#eventRefs.push(
-				this.app.workspace.on('active-leaf-change', () => {
-					if (this.settings.enabled) {
-						void this.reconcile();
-					}
-				}),
-			);
+	/**
+	 * iOS freezes a backgrounded app mid-request, so returning to the foreground is
+	 * the moment sync has to be rebuilt (§2.3). visibilitychange is the event that
+	 * actually reports it; window focus is a fallback for WebViews that skip it.
+	 */
+	#registerForegroundTriggers(): void {
+		if (!Platform.isMobileApp) {
+			return;
 		}
+		this.registerDomEvent(document, 'visibilitychange', () => {
+			if (!document.hidden) {
+				this.#onForeground();
+			}
+		});
+		this.registerDomEvent(window, 'focus', () => {
+			this.#onForeground();
+		});
+	}
+
+	#onForeground(): void {
+		if (!this.settings.enabled) {
+			return;
+		}
+		const now = Date.now();
+		if (now - this.#lastForegroundAt < foregroundThrottleMs) {
+			return;
+		}
+		this.#lastForegroundAt = now;
+
+		// A suspended app's long-poll is frozen rather than closed, so the channel is
+		// rebuilt instead of waiting out its timeout before the next nudge can arrive.
+		if (this.#nudge !== null) {
+			this.#nudge.stop();
+			this.#startNudge();
+		}
+		void this.reconcile();
 	}
 
 	async reloadEngine(): Promise<void> {
