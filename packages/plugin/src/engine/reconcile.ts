@@ -72,8 +72,11 @@ export function planReconcile(input: ReconcileInput): ReconcilePlan {
 
 	// A vault that reports itself entirely empty is far more often a wrong vault id,
 	// a restored blank database, or a truncated response than a real mass delete, and
-	// the cost of being wrong is the whole vault. Withhold and report instead.
-	const massDeleteGuarded = input.remote.length === 0 && input.indexed.length > 0;
+	// the cost of being wrong is the whole vault. Withhold and report instead — but
+	// only when several files would fall: a lone tracked file is likelier one genuine
+	// remote delete, and withholding it would wedge the republish of any local edit
+	// against the forgotten server version.
+	const massDeleteGuarded = input.remote.length === 0 && input.indexed.length > 1;
 	const remoteDeletes = massDeleteGuarded
 		? []
 		: input.indexed.filter((entry) => !remoteIds.has(entry.fileId)).map((entry) => entry.fileId);

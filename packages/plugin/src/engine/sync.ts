@@ -7,8 +7,11 @@ import type { LocalState } from '../state/local-state.js';
 import { type ApiClient, ConflictError } from '../transport/client.js';
 import { decodeFile, encodeFile } from './codec.js';
 import { merge3 } from './merge.js';
+import { planReconcile, type ReconcileSummary } from './reconcile.js';
 import { isPathIncluded, type SelectiveSyncOptions } from './selective.js';
 import { StaleWriteError, type VaultAdapter, type VaultFile } from './vault.js';
+
+export type { ReconcileSummary } from './reconcile.js';
 
 export type EngineStatus = 'idle' | 'syncing' | 'conflict' | 'error';
 
@@ -271,6 +274,73 @@ export class SyncEngine {
 			await this.#deps.index.save();
 			await this.#deps.bases.save();
 			return merged;
+		} finally {
+			this.#status('idle');
+		}
+	}
+
+	/**
+	 * Compare the whole vault against `GET /state` (§7.4) and repair what the
+	 * incremental path cannot see: changes made while the app was terminated, a
+	 * cursor lost to a crash, and a state directory that was wiped or restored.
+	 *
+	 * Every apply goes through the same two methods a pull uses, so §8's resolution
+	 * table governs reconcile identically — nothing here decides a conflict of its
+	 * own. The local half is left to `pushAll`, which already re-derives a dirty
+	 * file and a local delete from the vault itself.
+	 */
+	async reconcile(): Promise<ReconcileSummary> {
+		const { vaultId, client, index, bases, local } = this.#deps;
+		this.#status('syncing');
+		try {
+			const snapshot = await client.state(vaultId);
+			const plan = planReconcile({
+				remote: snapshot.files.map((file) => ({
+					fileId: file.fileId,
+					headVersion: file.headVersion,
+					size: file.size,
+				})),
+				indexed: index
+					.entries()
+					.map((entry) => ({ fileId: entry.fileId, versionId: entry.versionId })),
+				maxFileBytes: this.#selective.maxFileBytes,
+			});
+
+			const byFileId = new Map(snapshot.files.map((file) => [file.fileId, file]));
+			let mergedLocally = 0;
+			for (const fileId of plan.pull) {
+				const state = byFileId.get(fileId);
+				if (state === undefined) {
+					continue;
+				}
+				mergedLocally += await this.#applyRemoteState(fileId, state);
+			}
+
+			let removed = 0;
+			for (const fileId of plan.remoteDeletes) {
+				// A non-zero return means the local file was modified and survived, so it
+				// was not removed — it is dirty, and the following push republishes it.
+				const preserved = await this.#applyRemoteDelete(fileId);
+				mergedLocally += preserved;
+				removed += preserved === 0 ? 1 : 0;
+			}
+
+			// The server reads its sequence before listing files, so anything landing
+			// mid-read is re-delivered rather than skipped and this snapshot's seq is a
+			// safe cursor. Raised only: a pull already further ahead must not replay.
+			local.setCursor(Math.max(local.getCursor(), snapshot.seq));
+
+			await index.save();
+			await bases.save();
+
+			return {
+				remoteFiles: snapshot.files.length,
+				pulled: plan.pull.length,
+				mergedLocally,
+				removed,
+				skippedOversize: plan.oversized.length,
+				massDeleteGuarded: plan.massDeleteGuarded,
+			};
 		} finally {
 			this.#status('idle');
 		}
