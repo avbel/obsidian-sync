@@ -75,6 +75,7 @@ function textToBytes(text: string): Uint8Array {
 export class SyncEngine {
 	readonly #deps: SyncEngineDeps;
 	#selective: SelectiveSyncOptions;
+	#sawVault = false;
 
 	constructor(deps: SyncEngineDeps) {
 		this.#deps = deps;
@@ -103,13 +104,22 @@ export class SyncEngine {
 
 			// A delete dropped by a crash or a failed upload leaves no event to replay,
 			// so absence is re-derived: an indexed path that is gone locally is a delete.
-			for (const entry of index.entries()) {
-				if (isPathIncluded(entry.path, this.#selective) && !(await vault.exists(entry.path))) {
-					await this.#pushDelete(entry.path);
+			const listed = await vault.list();
+			if (listed.length > 0) {
+				this.#sawVault = true;
+			}
+			// Absence only means "deleted" once this session has seen the vault list its
+			// contents at least once. Before that an empty listing is a vault that cannot
+			// see itself yet, and treating it as a mass delete would wipe the server.
+			if (this.#sawVault) {
+				for (const entry of index.entries()) {
+					if (isPathIncluded(entry.path, this.#selective) && !(await vault.exists(entry.path))) {
+						await this.#pushDelete(entry.path);
+					}
 				}
 			}
 
-			for (const file of await vault.list()) {
+			for (const file of listed) {
 				if (
 					!isPathIncluded(file.path, this.#selective) ||
 					file.size > this.#selective.maxFileBytes

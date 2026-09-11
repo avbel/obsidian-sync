@@ -30,6 +30,12 @@ function same(left: Uint8Array, right: Uint8Array): boolean {
 export class MemoryVault implements VaultAdapter {
 	readonly #files = new Map<string, { data: Uint8Array; mtime: number; ctime: number }>();
 	#race: { path: string; text: string } | undefined;
+	#blind = false;
+
+	/** Stands in for Obsidian's file cache before it is populated: contents exist, but nothing is visible. */
+	setBlind(blind: boolean): void {
+		this.#blind = blind;
+	}
 
 	/** Rewrites `path` the next time it is read, standing in for a keystroke landing mid-apply. */
 	raceOnce(path: string, text: string): void {
@@ -48,6 +54,9 @@ export class MemoryVault implements VaultAdapter {
 	}
 
 	async list(): Promise<VaultFile[]> {
+		if (this.#blind) {
+			return [];
+		}
 		return [...this.#files.entries()].map(([path, file]) => ({
 			path,
 			mtime: file.mtime,
@@ -57,7 +66,7 @@ export class MemoryVault implements VaultAdapter {
 	}
 
 	async exists(path: string): Promise<boolean> {
-		return this.#files.has(path);
+		return this.#blind ? false : this.#files.has(path);
 	}
 
 	async read(path: string): Promise<Uint8Array> {

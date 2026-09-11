@@ -73,7 +73,12 @@ export default class SyncPlugin extends Plugin {
 
 		this.registerDomElements();
 		if (this.settings.enabled) {
-			await this.reloadEngine();
+			// Obsidian populates its file cache after layout. Starting the engine before
+			// that makes every tracked note look absent, which the push path reads as a
+			// delete and propagates to every other device.
+			this.app.workspace.onLayoutReady(() => {
+				void this.reloadEngine();
+			});
 		}
 	}
 

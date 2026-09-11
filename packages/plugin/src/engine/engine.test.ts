@@ -42,6 +42,7 @@ interface Device {
 	vault: MemoryVault;
 	index: FileIndex;
 	conflicts: ConflictRecord[];
+	deps: SyncEngineDeps;
 }
 
 let server: FakeServer;
@@ -68,7 +69,7 @@ async function makeDevice(deviceId: string): Promise<Device> {
 		deviceId,
 		onConflict: (conflict) => conflicts.push(conflict),
 	};
-	return { engine: new SyncEngine(deps), vault, index, conflicts };
+	return { engine: new SyncEngine(deps), vault, index, conflicts, deps };
 }
 
 beforeEach(async () => {
@@ -239,6 +240,38 @@ describe('regressions', () => {
 
 		await phone.engine.pullAll();
 		expect(await phone.vault.exists('gone.md')).toBe(false);
+	});
+
+	// Obsidian populates its file cache after the plugin loads, so a sync racing
+	// startup sees a full index and an empty vault. That must never read as a delete.
+	test('a restart whose vault cannot see its own files yet deletes nothing remotely', async () => {
+		const laptop = await makeDevice('laptop');
+		laptop.vault.putText('a.md', 'one\n');
+		laptop.vault.putText('b.md', 'two\n');
+		await laptop.engine.pushAll();
+		expect(server.liveFileCount()).toBe(2);
+
+		laptop.vault.setBlind(true);
+		const restarted = new SyncEngine(laptop.deps);
+		await restarted.pushAll();
+		expect(server.liveFileCount()).toBe(2);
+
+		laptop.vault.setBlind(false);
+		await restarted.pushAll();
+		expect(server.liveFileCount()).toBe(2);
+		expect(laptop.index.entries()).toHaveLength(2);
+	});
+
+	test('a genuine delete still propagates while other files remain', async () => {
+		const laptop = await makeDevice('laptop');
+		laptop.vault.putText('keep.md', 'stay\n');
+		laptop.vault.putText('drop.md', 'go\n');
+		await laptop.engine.pushAll();
+		expect(server.liveFileCount()).toBe(2);
+
+		await laptop.vault.remove('drop.md');
+		await laptop.engine.pushAll();
+		expect(server.liveFileCount()).toBe(1);
 	});
 
 	test('a selective-sync change applies to a running engine', async () => {

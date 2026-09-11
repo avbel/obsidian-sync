@@ -46,6 +46,11 @@ export class FakeServer implements Requester {
 	private versionCounter = 0;
 	vaultId = 'test-vault';
 
+	/** Files the vault currently holds, for asserting test preconditions. */
+	liveFileCount(): number {
+		return [...this.files.values()].filter((file) => !file.deleted).length;
+	}
+
 	/** The current head version id of a file, for asserting test preconditions. */
 	headOf(fileId: string): string | undefined {
 		const file = this.files.get(fileId);
