@@ -1,6 +1,6 @@
 {
 	"name": "@obsidian-sync/plugin",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"private": true,
 	"type": "module",
 	"description": "End-to-end encrypted vault sync for Obsidian",

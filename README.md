@@ -97,7 +97,7 @@ docker run -d --name obsidian-sync \
 | Tag | Tracks |
 |---|---|
 | `latest` | The newest release. |
-| `0.0.1`, `0.0` | A specific release. |
+| `0.0.2`, `0.0` | A specific release. |
 | `main` | Every push to the default branch. |
 | `sha-<short>` | A specific commit. |
 
@@ -276,7 +276,11 @@ No path through that table destroys data without an explicit choice.
 
 ## What is never synced
 
-`workspace.json` and `workspace-mobile.json` (they describe device-local pane layout), and this plugin's own state directory.
+- `workspace.json` and `workspace-mobile.json` — they describe device-local pane layout.
+- This plugin's own state directory.
+- Obsidian's local trash (`.trash/`), which would otherwise resurrect every deleted note on every other device, and version-control metadata (`.git/`, `.svn/`, `.hg/`).
+- Operating-system debris: `.DS_Store`, `._*` resource forks, `.Spotlight-V100/`, `Thumbs.db`, `desktop.ini`, `$RECYCLE.BIN/` and friends.
+- Editor and download temporaries: `*.swp`, `*~`, `.#*`, `~$*`, `*.tmp`, `*.part`, `*.crdownload`.
 
 ---
 

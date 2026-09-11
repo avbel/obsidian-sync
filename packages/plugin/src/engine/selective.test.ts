@@ -58,3 +58,42 @@ describe('isPathIncluded', () => {
 		expect(isPathIncluded('secretsafe/x.md', opts)).toBe(true);
 	});
 });
+
+describe('system and editor debris', () => {
+	test('macOS metadata never syncs, at any depth', () => {
+		expect(isPathIncluded('.DS_Store', allOn)).toBe(false);
+		expect(isPathIncluded('.obsidian/.DS_Store', allOn)).toBe(false);
+		expect(isPathIncluded('notes/deep/.DS_Store', allOn)).toBe(false);
+		expect(isPathIncluded('notes/._resource', allOn)).toBe(false);
+		expect(isPathIncluded('.Spotlight-V100/store.db', allOn)).toBe(false);
+	});
+
+	test('Windows and Linux debris never syncs', () => {
+		expect(isPathIncluded('Thumbs.db', allOn)).toBe(false);
+		expect(isPathIncluded('notes/desktop.ini', allOn)).toBe(false);
+		expect(isPathIncluded('$RECYCLE.BIN/x', allOn)).toBe(false);
+		expect(isPathIncluded('notes/.directory', allOn)).toBe(false);
+	});
+
+	test('editor temporaries and lock files never sync', () => {
+		expect(isPathIncluded('notes/.a.md.swp', allOn)).toBe(false);
+		expect(isPathIncluded('notes/a.md~', allOn)).toBe(false);
+		expect(isPathIncluded('notes/.#a.md', allOn)).toBe(false);
+		expect(isPathIncluded('notes/~$report.docx', allOn)).toBe(false);
+		expect(isPathIncluded('notes/photo.png.part', allOn)).toBe(false);
+	});
+
+	// Obsidian's local trash lives here; syncing it would resurrect every deleted
+	// note as a file on every other device.
+	test('the local trash and version-control metadata never sync', () => {
+		expect(isPathIncluded('.trash/deleted.md', allOn)).toBe(false);
+		expect(isPathIncluded('.git/config', allOn)).toBe(false);
+	});
+
+	test('ordinary notes that merely resemble debris still sync', () => {
+		expect(isPathIncluded('notes/a~b.md', allOn)).toBe(true);
+		expect(isPathIncluded('notes/desktop-setup.md', allOn)).toBe(true);
+		expect(isPathIncluded('trash-talk/a.md', allOn)).toBe(true);
+		expect(isPathIncluded('notes/template.md', allOn)).toBe(true);
+	});
+});

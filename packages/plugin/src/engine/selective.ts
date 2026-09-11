@@ -32,12 +32,71 @@ export const neverSyncedPaths = new Set([
 	`${configDir}/workspace-mobile.json`,
 ]);
 
+/**
+ * Operating-system and editor debris, matched on the file name. Syncing these is
+ * worse than useless: `.DS_Store` carries per-device Finder state, and the rest are
+ * half-written files whose contents are meaningless on another machine.
+ */
+const ignoredFileNames = new Set([
+	'.ds_store',
+	'.localized',
+	'desktop.ini',
+	'thumbs.db',
+	'ehthumbs.db',
+	'.directory',
+	'.apdisk',
+	'.volumeicon.icns',
+	'.com.apple.timemachine.donotpresent',
+]);
+
+const ignoredFilePatterns = [
+	/^\._/,
+	/^\.#/,
+	/^~\$/,
+	/^\.~lock\./,
+	/^\.nfs[0-9a-f]/,
+	/~$/,
+	/\.(tmp|temp|swp|swo|crdownload|part)$/,
+];
+
+/**
+ * Directories whose whole subtree is debris. `.trash` is the load-bearing one:
+ * Obsidian's local trash lives there, so syncing it would resurrect every deleted
+ * note as a file on every other device.
+ */
+const ignoredDirectories = new Set([
+	'.trash',
+	'.git',
+	'.svn',
+	'.hg',
+	'.spotlight-v100',
+	'.trashes',
+	'.fseventsd',
+	'.temporaryitems',
+	'.appledouble',
+	'.documentrevisions-v100',
+	'$recycle.bin',
+	'system volume information',
+]);
+
 export function isNeverSynced(normalisedPath: string): boolean {
-	return (
+	if (
 		neverSyncedPaths.has(normalisedPath) ||
 		normalisedPath === pluginDir ||
 		normalisedPath.startsWith(`${pluginDir}/`)
-	);
+	) {
+		return true;
+	}
+
+	const segments = normalisedPath.split('/');
+	const name = segments[segments.length - 1] ?? '';
+	if (segments.slice(0, -1).some((segment) => ignoredDirectories.has(segment.toLowerCase()))) {
+		return true;
+	}
+	if (ignoredDirectories.has(name.toLowerCase()) || ignoredFileNames.has(name.toLowerCase())) {
+		return true;
+	}
+	return ignoredFilePatterns.some((pattern) => pattern.test(name));
 }
 
 export function categorizePath(path: string): SyncCategory {
