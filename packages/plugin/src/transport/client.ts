@@ -65,6 +65,18 @@ export class ConflictError extends Error {
 	}
 }
 
+/**
+ * A request that never settled. `requestUrl` has no timeout of its own (§R1), and a
+ * connection frozen by an app suspension otherwise hangs forever, wedging both the
+ * sync run and the long-poll loop behind a promise that can never resolve.
+ */
+export class TimeoutError extends Error {
+	constructor(ms: number) {
+		super(`the sync server did not respond within ${ms}ms`);
+		this.name = 'TimeoutError';
+	}
+}
+
 /** 507: server disk full — the client pauses uploads (§9). */
 export class DiskFullError extends Error {
 	constructor() {

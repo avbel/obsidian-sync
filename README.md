@@ -97,7 +97,7 @@ docker run -d --name obsidian-sync \
 | Tag | Tracks |
 |---|---|
 | `latest` | The newest release. |
-| `0.0.8`, `0.0` | A specific release. |
+| `0.0.9`, `0.0` | A specific release. |
 | `main` | Every push to the default branch. |
 | `sha-<short>` | A specific commit. |
 
@@ -323,6 +323,7 @@ The design describes more than is built. Currently missing:
 - Conflict resolution modal — conflicts produce a copy and a notice, but no interactive resolve.
 - Full reconcile against `GET /state`. The *Full reconcile* command currently runs an ordinary incremental sync.
 - Durable, restart-surviving offline queue. Pending deletes are held in memory; a lost delete is recovered on the next sync by reconciling the index against the vault, so correctness holds, but the queue itself is not persisted.
+- A real foreground hook on mobile. iOS suspends a backgrounded app, freezing any request in flight; sync resumes on the next trigger, but `active-leaf-change` is a proxy for foregrounding rather than the event itself.
 
 ---
 

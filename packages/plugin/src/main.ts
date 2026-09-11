@@ -37,6 +37,7 @@ import {
 
 const minimumApiVersion = '1.13.2';
 const hideCoreSyncClass = 'obsidian-sync-hide-core-sync';
+const syncWatchdogMs = 5 * 60 * 1000;
 
 export default class SyncPlugin extends Plugin {
 	settings: PluginSettings = { ...defaultSettings };
@@ -284,12 +285,20 @@ export default class SyncPlugin extends Plugin {
 			this.#resyncRequested = true;
 			return this.#syncing;
 		}
-		this.#syncing = (async () => {
-			do {
-				this.#resyncRequested = false;
-				await this.#runSync();
-			} while (this.#resyncRequested);
-		})();
+		// Raced against a watchdog: a run that somehow never settles must not leave every
+		// later requestSync() awaiting a dead promise, which silently disables sync until
+		// the plugin is reloaded. Runs are idempotent, so abandoning one is safe.
+		this.#syncing = Promise.race([
+			(async () => {
+				do {
+					this.#resyncRequested = false;
+					await this.#runSync();
+				} while (this.#resyncRequested);
+			})(),
+			new Promise<void>((resolve) => {
+				setTimeout(resolve, syncWatchdogMs);
+			}),
+		]);
 		try {
 			await this.#syncing;
 		} finally {
