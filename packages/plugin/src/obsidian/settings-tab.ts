@@ -64,20 +64,26 @@ export class SyncSettingTab extends PluginSettingTab {
 				void this.#plugin.testConnection();
 			}),
 		);
-		new Setting(containerEl).setName('Device label').addText((text) =>
-			text.setValue(settings.deviceLabel).onChange((value) => {
-				void update({ deviceLabel: value });
-			}),
-		);
+		new Setting(containerEl)
+			.setName('Device label')
+			.setDesc('Names this device in version history. Prefilled from the machine name.')
+			.addText((text) =>
+				text.setValue(settings.deviceLabel).onChange((value) => {
+					void update({ deviceLabel: value });
+				}),
+			);
 
 		new Setting(containerEl).setName('Encryption').setHeading();
 		new Setting(containerEl)
 			.setName('Vault name')
 			.setDesc('The remote vault to sync. Created on first sync if absent.')
 			.addText((text) =>
-				text.setValue(settings.vaultName).onChange((value) => {
-					void update({ vaultName: value.trim() });
-				}),
+				text
+					.setPlaceholder('default')
+					.setValue(settings.vaultName)
+					.onChange((value) => {
+						void update({ vaultName: value.trim() });
+					}),
 			);
 		new Setting(containerEl)
 			.setName('Passphrase')

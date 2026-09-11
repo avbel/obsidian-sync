@@ -105,6 +105,11 @@ export default class SyncPlugin extends Plugin {
 	async loadSettings(): Promise<void> {
 		const stored = (await this.loadData()) as Partial<PluginSettings> | null;
 		this.settings = { ...defaultSettings, ...(stored ?? {}) };
+
+		if (this.settings.deviceLabel === '') {
+			this.settings.deviceLabel = detectDeviceName();
+			await this.saveSettings();
+		}
 	}
 
 	#secrets(): SecretsPort | null {
@@ -175,7 +180,7 @@ export default class SyncPlugin extends Plugin {
 		const me = await client.me();
 		let vault = me.vaults.find((candidate) => candidate.name === this.settings.vaultName);
 		if (vault === undefined) {
-			vault = await client.createVault(this.settings.vaultName || 'vault');
+			vault = await client.createVault(this.settings.vaultName || defaultSettings.vaultName);
 		}
 
 		this.#keys = await derivePurposeKeys(passphrase, vault.kdfSalt);
@@ -390,4 +395,28 @@ export default class SyncPlugin extends Plugin {
 		this.#watcher = null;
 		this.#engine = null;
 	}
+}
+
+/**
+ * The machine's own name, so two devices are distinguishable in version history
+ * without the user naming them. `os` is reachable in Obsidian's desktop renderer
+ * but absent in the mobile WebView, hence the platform fallback.
+ */
+function detectDeviceName(): string {
+	try {
+		const hostname = (require('node:os') as typeof import('node:os')).hostname();
+		const trimmed = hostname.replace(/\.(local|lan|home|localdomain|internal)$/i, '').trim();
+		if (trimmed !== '') {
+			return trimmed;
+		}
+	} catch {
+		// Mobile: no node builtins.
+	}
+	if (Platform.isIosApp) {
+		return 'iOS device';
+	}
+	if (Platform.isAndroidApp) {
+		return 'Android device';
+	}
+	return 'This device';
 }

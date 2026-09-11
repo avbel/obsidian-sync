@@ -23,7 +23,7 @@ export interface PluginSettings {
 export const defaultSettings: PluginSettings = {
 	serverUrl: '',
 	deviceLabel: '',
-	vaultName: '',
+	vaultName: 'default',
 	transport: 'automatic',
 	pollIntervalSeconds: 60,
 	longPollWaitSeconds: 25,

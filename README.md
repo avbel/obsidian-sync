@@ -97,7 +97,7 @@ docker run -d --name obsidian-sync \
 | Tag | Tracks |
 |---|---|
 | `latest` | The newest release. |
-| `0.0.4`, `0.0` | A specific release. |
+| `0.0.5`, `0.0` | A specific release. |
 | `main` | Every push to the default branch. |
 | `sha-<short>` | A specific commit. |
 
@@ -164,9 +164,10 @@ In Settings → Obsidian Sync:
 
 1. **Server URL** — `http://100.x.y.z:3000`, your tailnet address.
 2. **Auth token** — the value of `SYNC_USER_ALICE`. Press **Test**; it should report your username and vault count.
-3. **Vault name** — any name. It is created on the server on first sync.
+3. **Vault name** — defaults to `default`. It is created on the server on first sync.
 4. **Passphrase** — this encrypts everything. Choose it carefully; see the warning below.
-5. **Enable sync**.
+5. **Device label** — prefilled from the machine name; it only names this device in version history.
+6. **Enable sync**.
 
 The token and passphrase go into Obsidian's `secretStorage`, never into `data.json` — that file lives inside the vault and would itself be synced.
 
