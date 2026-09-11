@@ -91,14 +91,14 @@ docker run -d --name obsidian-sync \
   -p 3000:3000 \
   -v obsidian-sync-data:/data \
   -e SYNC_USER_ALICE="$(openssl rand -hex 32)" \
-  ghcr.io/avbel/obsidian-sync-server:main
+  ghcr.io/avbel/obsidian-sync-server:latest
 ```
 
 | Tag | Tracks |
 |---|---|
-| `main` | Every push to the default branch. **Use this for now** — there is no tagged release yet. |
-| `latest` | The newest `v*` tag, once one exists. |
-| `1.2.3`, `1.2` | A specific release. |
+| `latest` | The newest release. |
+| `0.0.1`, `0.0` | A specific release. |
+| `main` | Every push to the default branch. |
 | `sha-<short>` | A specific commit. |
 
 #### From source
@@ -130,7 +130,17 @@ Back up `/data` (or the named volume). It holds the SQLite database and every en
 
 ### 2. Install the plugin
 
-Requires Obsidian **1.13.2** or newer. There is no community-plugin listing yet, and no tagged release — so **build from source** for now.
+Requires Obsidian **1.13.2** or newer. There is no community-plugin listing yet.
+
+#### From a release
+
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/avbel/obsidian-sync/releases/latest).
+2. Create `<vault>/.obsidian/plugins/obsidian-sync/` and put all three files in it.
+3. Reload Obsidian and enable **Obsidian Sync** under Settings → Community plugins.
+
+#### Via BRAT
+
+Install [BRAT](https://github.com/TfTHacker/obsidian42-brat), then **Add beta plugin** with `avbel/obsidian-sync`. It keeps the plugin updated for you.
 
 #### From source
 
@@ -145,16 +155,6 @@ mkdir -p <vault>/.obsidian/plugins/obsidian-sync
 cp packages/plugin/{main.js,manifest.json,styles.css} \
    <vault>/.obsidian/plugins/obsidian-sync/
 ```
-
-Then reload Obsidian and enable **Obsidian Sync** under Settings → Community plugins.
-
-#### From a release, once one is tagged
-
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [releases page](https://github.com/avbel/obsidian-sync/releases).
-2. Create `<vault>/.obsidian/plugins/obsidian-sync/` and put all three files in it.
-3. Reload Obsidian and enable the plugin.
-
-Or install [BRAT](https://github.com/TfTHacker/obsidian42-brat) and **Add beta plugin** with `avbel/obsidian-sync`, which keeps it updated for you.
 
 On iOS and Android the plugin folder lives inside the vault, so the easiest route is to install on a desktop vault first and let the files reach the phone, or use a file manager that can see the vault directory.
 

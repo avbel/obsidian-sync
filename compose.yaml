@@ -1,6 +1,6 @@
 services:
   sync:
-    image: ghcr.io/avbel/obsidian-sync-server:main
+    image: ghcr.io/avbel/obsidian-sync-server:latest
     restart: unless-stopped
     ports:
       - '3000:3000'
