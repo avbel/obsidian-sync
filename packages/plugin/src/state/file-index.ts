@@ -56,6 +56,16 @@ export class FileIndex {
 		this.#entries.delete(path);
 	}
 
+	getByFileId(fileId: string): IndexEntry | undefined {
+		this.#assertLoaded();
+		for (const entry of this.#entries.values()) {
+			if (entry.fileId === fileId) {
+				return entry;
+			}
+		}
+		return undefined;
+	}
+
 	forgetFileId(fileId: string): void {
 		this.#assertLoaded();
 		for (const [path, entry] of this.#entries) {

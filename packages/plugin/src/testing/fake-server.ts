@@ -42,6 +42,8 @@ export class FakeServer implements Requester {
 	readonly files = new Map<string, StoredFile>();
 	readonly versions = new Map<string, StoredVersion>();
 	readonly log: StoredChange[] = [];
+	/** Every request received, as `"<METHOD> <path>"`, so tests can assert call counts. */
+	readonly requests: string[] = [];
 	private seq = 0;
 	private versionCounter = 0;
 	vaultId = 'test-vault';
@@ -73,6 +75,8 @@ export class FakeServer implements Requester {
 
 	async request(request: SyncRequest): Promise<SyncResponse> {
 		const { path, method, body } = request;
+		const [basePath] = path.split('?');
+		this.requests.push(`${method} ${basePath ?? path}`);
 		const url = new URL(`http://x${path}`);
 		const parts = url.pathname.split('/').filter((part) => part.length > 0);
 

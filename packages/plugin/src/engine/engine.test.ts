@@ -290,6 +290,36 @@ describe('regressions', () => {
 
 		expect(phone.vault.getText('race.md')).toBe('line one EDITED\nline two\ntyped by the user\n');
 	});
+
+	// #pullFileById used to fetch the entire vault state per changed file, so a page
+	// of N changes cost N full-state responses — every metaBlob in the vault, N times.
+	test('a pull page costs one state request however many files changed', async () => {
+		const laptop = await device('laptop');
+		laptop.vault.putText('a.md', 'one\n');
+		laptop.vault.putText('b.md', 'two\n');
+		laptop.vault.putText('c.md', 'three\n');
+		await laptop.engine.pushAll();
+
+		const phone = await device('phone');
+		server.requests.length = 0;
+		await phone.engine.pullAll();
+
+		expect(server.requests.filter((entry) => entry.endsWith('/state'))).toHaveLength(1);
+		expect(phone.vault.getText('c.md')).toBe('three\n');
+	});
+
+	test('a pull with nothing to apply fetches no state at all', async () => {
+		const laptop = await device('laptop');
+		laptop.vault.putText('a.md', 'one\n');
+		await laptop.engine.pushAll();
+
+		const phone = await device('phone');
+		await phone.engine.pullAll();
+		server.requests.length = 0;
+		await phone.engine.pullAll();
+
+		expect(server.requests.filter((entry) => entry.endsWith('/state'))).toEqual([]);
+	});
 });
 
 describe('conflict resolution', () => {

@@ -1,3 +1,4 @@
+import type { FileState } from '@obsidian-sync/protocol';
 import { hashBytes } from '../crypto/encoding.js';
 import type { PurposeKeys } from '../crypto/keys.js';
 import type { BaseCache } from '../state/base-cache.js';
@@ -245,11 +246,22 @@ export class SyncEngine {
 			let hasMore = true;
 			while (hasMore) {
 				const page = await client.changes(vaultId, cursor, 0);
-				for (const change of page.changes) {
-					if (change.kind === 'delete') {
-						merged += await this.#applyRemoteDelete(change.fileId);
-					} else {
-						merged += await this.#pullFileById(change.fileId);
+				// One snapshot per page. It is taken after the page, so every change in the
+				// page is reflected in it, and anything newer arrives under a later cursor.
+				if (page.changes.length > 0) {
+					const snapshot = await client.state(vaultId);
+					const byFileId = new Map(snapshot.files.map((file) => [file.fileId, file]));
+					for (const change of page.changes) {
+						if (change.kind === 'delete') {
+							merged += await this.#applyRemoteDelete(change.fileId);
+							continue;
+						}
+						const state = byFileId.get(change.fileId);
+						// Absent means the file was deleted after this upsert; the delete change
+						// later in the same page is what applies.
+						if (state !== undefined) {
+							merged += await this.#applyRemoteState(change.fileId, state);
+						}
 					}
 				}
 				cursor = page.seq;
@@ -264,12 +276,17 @@ export class SyncEngine {
 		}
 	}
 
+	/** Fetch one file's current server record. Used by the push path's 409 retry only. */
 	async #pullFileById(fileId: string): Promise<number> {
+		const { vaultId, client } = this.#deps;
+		const snapshot = await client.state(vaultId);
+		const state = snapshot.files.find((file) => file.fileId === fileId);
+		return state === undefined ? 0 : this.#applyRemoteState(fileId, state);
+	}
+
+	/** Decrypt one server file record and apply it under §8. Returns 1 if it merged. */
+	async #applyRemoteState(fileId: string, state: FileState): Promise<number> {
 		const { vaultId, client, keys } = this.#deps;
-		const state = (await client.state(vaultId)).files.find((file) => file.fileId === fileId);
-		if (state === undefined) {
-			return 0;
-		}
 		const decoded = await decodeFile(keys, fileId, state.metaBlob, (address) =>
 			client.getBlob(vaultId, address),
 		);
@@ -362,7 +379,7 @@ export class SyncEngine {
 
 	async #applyRemoteDelete(fileId: string): Promise<number> {
 		const { index, bases, vault } = this.#deps;
-		const entry = index.entries().find((candidate) => candidate.fileId === fileId);
+		const entry = index.getByFileId(fileId);
 		if (entry === undefined) {
 			return 0;
 		}
