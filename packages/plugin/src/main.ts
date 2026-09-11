@@ -9,11 +9,13 @@ import {
 	setTooltip,
 } from 'obsidian';
 import { derivePurposeKeys, type PurposeKeys } from './crypto/keys.js';
+import { describeReconcile } from './engine/reconcile.js';
 import { pluginId } from './engine/selective.js';
 import {
 	type ConflictChoice,
 	type ConflictRecord,
 	type EngineStatus,
+	type ReconcileSummary,
 	SyncEngine,
 } from './engine/sync.js';
 import { ConflictModal } from './obsidian/conflict-modal.js';
@@ -53,6 +55,7 @@ export default class SyncPlugin extends Plugin {
 	settings: PluginSettings = { ...defaultSettings };
 	lastStatus: EngineStatus = 'idle';
 	lastSyncAt = 0;
+	lastReconcile: ReconcileSummary | undefined;
 
 	#conflicts: ConflictList | null = null;
 
@@ -69,6 +72,7 @@ export default class SyncPlugin extends Plugin {
 	#pendingDeletes = new Set<string>();
 	#syncing: Promise<void> | null = null;
 	#resyncRequested = false;
+	#reconcileRequested: 'silent' | 'announce' | undefined;
 
 	override async onload(): Promise<void> {
 		if (!requireApiVersion(minimumApiVersion)) {
@@ -205,7 +209,9 @@ export default class SyncPlugin extends Plugin {
 			this.#nudge.stop();
 			this.#startNudge();
 		}
-		void this.reconcile();
+		// Incremental, not a full reconcile: /state carries every metaBlob in the vault,
+		// and a foreground can fire often on mobile. Load and the command cover recovery.
+		void this.requestSync();
 	}
 
 	async reloadEngine(): Promise<void> {
@@ -224,7 +230,9 @@ export default class SyncPlugin extends Plugin {
 			this.#startNudge();
 			this.#startWatcher();
 			if (this.settings.syncOnStartup) {
-				await this.requestSync();
+				// A restart is exactly when the cursor may be stale or the state directory
+				// gone, so the first run of a session is the full comparison, not a nudge.
+				await this.reconcile({ announce: false });
 			}
 		} catch (error) {
 			this.#setStatus('error');
@@ -379,9 +387,24 @@ export default class SyncPlugin extends Plugin {
 		// on-disk trace to rediscover beyond the index, which pushAll also reconciles.
 		const deletes = [...this.#pendingDeletes];
 		this.#pendingDeletes.clear();
+		const reconciling = this.#reconcileRequested;
+		this.#reconcileRequested = undefined;
 		try {
 			this.#setStatus('syncing');
-			await this.#engine.pullAll();
+			if (reconciling === undefined) {
+				await this.#engine.pullAll();
+			} else {
+				const summary = await this.#engine.reconcile();
+				this.lastReconcile = summary;
+				if (reconciling === 'announce') {
+					new Notice(describeReconcile(summary));
+				}
+				if (summary.massDeleteGuarded) {
+					new Notice(
+						'Obsidian Sync: the server listed no files, so nothing was removed locally. Check the vault name and token.',
+					);
+				}
+			}
 			await this.#engine.pushAll(deletes);
 			this.lastSyncAt = Date.now();
 			this.#setStatus('idle');
@@ -389,6 +412,8 @@ export default class SyncPlugin extends Plugin {
 			for (const path of deletes) {
 				this.#pendingDeletes.add(path);
 			}
+			// A reconcile that failed is still owed; the next run picks it up.
+			this.#reconcileRequested = reconciling;
 			this.#setStatus('error');
 			this.#logError(error);
 		}
@@ -405,7 +430,17 @@ export default class SyncPlugin extends Plugin {
 		this.#watcher?.setDebounce(this.settings.debounceMs);
 	}
 
-	async reconcile(): Promise<void> {
+	/**
+	 * Queue a full reconcile and run it through the ordinary sync lock, so no push
+	 * from this device can land between the server snapshot and the apply pass — which
+	 * is what makes "absent from the snapshot" mean "deleted remotely".
+	 */
+	async reconcile(options: { announce?: boolean } = {}): Promise<void> {
+		// A user-initiated reconcile arriving while a silent startup one is queued must
+		// still report what it did, so announce never downgrades to silent.
+		if (this.#reconcileRequested !== 'announce') {
+			this.#reconcileRequested = (options.announce ?? true) ? 'announce' : 'silent';
+		}
 		await this.requestSync();
 	}
 
@@ -526,6 +561,7 @@ export default class SyncPlugin extends Plugin {
 		this.#nudge?.stop();
 		this.#syncing = null;
 		this.#resyncRequested = false;
+		this.#reconcileRequested = undefined;
 		this.#watcher?.stop();
 		this.#nudge = null;
 		this.#watcher = null;

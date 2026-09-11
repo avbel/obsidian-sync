@@ -44,6 +44,14 @@ export class SyncStatusView extends ItemView {
 		const at = this.#plugin.lastSyncAt;
 		lastSync.setText(at === 0 ? 'Never synced' : `Last synced ${relativeTime(at)}`);
 
+		const reconcile = this.#plugin.lastReconcile;
+		if (reconcile !== undefined) {
+			root.createDiv({
+				cls: 'obsidian-sync-status__reconcile',
+				text: `Last reconcile: ${reconcile.remoteFiles} remote file(s), ${reconcile.pulled} pulled, ${reconcile.removed} removed`,
+			});
+		}
+
 		const conflicts = this.#plugin.pendingConflicts;
 		if (conflicts.length > 0) {
 			const list = root.createDiv({ cls: 'obsidian-sync-status__conflicts' });

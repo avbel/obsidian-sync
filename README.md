@@ -277,6 +277,14 @@ All routes require `Authorization: Bearer <token>` except health.
 
 No path through that table destroys data without an explicit choice.
 
+## Reconcile
+
+*Full reconcile* compares the whole vault against `GET /state` rather than replaying the change cursor. It runs on plugin load and on demand, and repairs what the incremental path cannot see: files that changed while the app was terminated, a cursor lost to a crash, and a wiped or restored state directory — identical bytes are adopted, so recovering a lost index produces no conflict copies.
+
+Files whose server head already matches the index are never decrypted or downloaded, so a settled vault costs exactly one request.
+
+If the server lists no files at all while the index still tracks several, every local removal is withheld and the reason is surfaced. A vault that reports itself empty is far more often a wrong vault id or a restored blank database than a real mass delete.
+
 ## What is never synced
 
 - `workspace.json` and `workspace-mobile.json` — they describe device-local pane layout.
@@ -321,7 +329,6 @@ The design describes more than is built. Currently missing:
 
 - First-run setup wizard, and the *Verify passphrase* action.
 - Version history and restore UI (the server API exists; the plugin does not call it).
-- Full reconcile against `GET /state`. The *Full reconcile* command currently runs an ordinary incremental sync.
 - Durable, restart-surviving offline queue. Pending deletes are held in memory; a lost delete is recovered on the next sync by reconciling the index against the vault, so correctness holds, but the queue itself is not persisted.
 
 ---
