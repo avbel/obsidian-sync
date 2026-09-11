@@ -199,9 +199,17 @@ export class SyncEngine {
 	}
 
 	async #pushDelete(path: string): Promise<void> {
-		const { vaultId, client, index, bases } = this.#deps;
+		const { vaultId, client, vault, index, bases } = this.#deps;
 		const known = index.get(path);
 		if (known === undefined) {
+			return;
+		}
+		// A queued delete is stale the moment the path exists again, whether a pull
+		// restored it or the user recreated it. Pushing it anyway destroys live
+		// content — and because the engine's own trash call is itself reported by the
+		// watcher as a user delete, two devices will otherwise delete and recreate the
+		// same file at each other indefinitely.
+		if (await vault.exists(path)) {
 			return;
 		}
 		try {

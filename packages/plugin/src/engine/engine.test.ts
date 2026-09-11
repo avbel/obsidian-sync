@@ -274,6 +274,29 @@ describe('regressions', () => {
 		expect(server.liveFileCount()).toBe(1);
 	});
 
+	// The engine's own vault.trash() is reported back by the watcher as a user delete.
+	// If a pull restores the file before that queued delete is pushed, pushing it
+	// deletes live content, and two devices ping-pong the same file forever.
+	test('a queued delete for a file that has come back is dropped', async () => {
+		const laptop = await makeDevice('laptop');
+		laptop.vault.putText('note.md', 'alive\n');
+		await laptop.engine.pushAll();
+
+		const fileId = await computeFileId(keys.nameMacKey, 'note.md');
+		expect(server.headOf(fileId)).toBeDefined();
+
+		// Assert on the change log, not the end state: without the guard the delete
+		// lands and the very same pushAll re-uploads the file, so the vault looks
+		// settled while every device has been handed a delete to apply.
+		const before = server.log.length;
+		await laptop.engine.pushAll(['note.md']);
+
+		expect(server.log.slice(before).map((change) => change.kind)).toEqual([]);
+		expect(server.headOf(fileId)).toBeDefined();
+		expect(laptop.index.get('note.md')).toBeDefined();
+		expect(laptop.vault.getText('note.md')).toBe('alive\n');
+	});
+
 	test('a selective-sync change applies to a running engine', async () => {
 		const device = await makeDevice('device');
 		device.vault.putText('note.md', 'text\n');

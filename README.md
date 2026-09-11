@@ -97,7 +97,7 @@ docker run -d --name obsidian-sync \
 | Tag | Tracks |
 |---|---|
 | `latest` | The newest release. |
-| `0.0.5`, `0.0` | A specific release. |
+| `0.0.6`, `0.0` | A specific release. |
 | `main` | Every push to the default branch. |
 | `sha-<short>` | A specific commit. |
 
