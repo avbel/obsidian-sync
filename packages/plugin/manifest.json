@@ -4,6 +4,7 @@
 	"version": "0.1.0",
 	"minAppVersion": "1.13.2",
 	"description": "Self-hosted, end-to-end encrypted vault sync over a Tailscale tailnet.",
-	"author": "obsidian-sync",
-	"isDesktopOnly": false
+	"author": "avbel",
+	"isDesktopOnly": false,
+	"authorUrl": "https://github.com/avbel"
 }

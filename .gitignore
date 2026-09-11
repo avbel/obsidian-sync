@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 data/
 .DS_Store
+.claude/
+.code-review-graph/
