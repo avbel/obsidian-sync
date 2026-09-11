@@ -345,3 +345,84 @@ describe('regressions', () => {
 		expect(phone.vault.getText('race.md')).toBe('line one EDITED\nline two\ntyped by the user\n');
 	});
 });
+
+describe('conflict resolution', () => {
+	/** Drives two devices into a real unmergeable conflict and returns the loser's record. */
+	async function conflicted(): Promise<{
+		a: Device;
+		b: Device;
+		record: ConflictRecord;
+	}> {
+		const seed = await makeDevice('seed');
+		seed.vault.putText('c.md', 'shared\nbase\n');
+		await seed.engine.pushAll();
+
+		const a = await makeDevice('a');
+		const b = await makeDevice('b');
+		await a.engine.pullAll();
+		await b.engine.pullAll();
+
+		a.vault.putText('c.md', 'shared\nversion-A\n');
+		b.vault.putText('c.md', 'shared\nversion-B\n');
+		await a.engine.pushAll();
+		await b.engine.pullAll();
+
+		const record = b.conflicts[0];
+		if (record === undefined) {
+			throw new Error('expected the second device to record a conflict');
+		}
+		expect(b.vault.getText('c.md')).toBe('shared\nversion-A\n');
+		expect(b.vault.getText(record.conflictCopyPath)).toBe('shared\nversion-B\n');
+		return { a, b, record };
+	}
+
+	test('keeping the local side restores it and republishes it to the other device', async () => {
+		const { a, b, record } = await conflicted();
+
+		expect(await b.engine.resolveConflict(record, 'mine')).toBe('resolved');
+		expect(b.vault.getText('c.md')).toBe('shared\nversion-B\n');
+		expect(await b.vault.exists(record.conflictCopyPath)).toBe(false);
+
+		// The index still records A's version, so the file reads dirty and pushes.
+		await b.engine.pushAll();
+		await a.engine.pullAll();
+		expect(a.vault.getText('c.md')).toBe('shared\nversion-B\n');
+	});
+
+	test('keeping the remote side drops the copy and leaves nothing to push', async () => {
+		const { a, b, record } = await conflicted();
+
+		expect(await b.engine.resolveConflict(record, 'remote')).toBe('resolved');
+		expect(b.vault.getText('c.md')).toBe('shared\nversion-A\n');
+		expect(await b.vault.exists(record.conflictCopyPath)).toBe(false);
+
+		await b.engine.pushAll();
+		await a.engine.pullAll();
+		expect(a.vault.getText('c.md')).toBe('shared\nversion-A\n');
+	});
+
+	test('keeping both leaves every file alone', async () => {
+		const { b, record } = await conflicted();
+
+		expect(await b.engine.resolveConflict(record, 'both')).toBe('resolved');
+		expect(b.vault.getText('c.md')).toBe('shared\nversion-A\n');
+		expect(b.vault.getText(record.conflictCopyPath)).toBe('shared\nversion-B\n');
+	});
+
+	test('a copy the user already deleted resolves as missing rather than throwing', async () => {
+		const { b, record } = await conflicted();
+		await b.vault.trash(record.conflictCopyPath);
+
+		expect(await b.engine.resolveConflict(record, 'mine')).toBe('missing-copy');
+	});
+
+	test('an edit landing while the modal is open is never clobbered', async () => {
+		const { b, record } = await conflicted();
+		// Rewrites c.md the next time it is read: a keystroke between read and write.
+		b.vault.raceOnce('c.md', 'typed\nwhile\nopen\n');
+
+		expect(await b.engine.resolveConflict(record, 'mine')).toBe('stale');
+		expect(b.vault.getText('c.md')).toBe('typed\nwhile\nopen\n');
+		expect(await b.vault.exists(record.conflictCopyPath)).toBe(true);
+	});
+});

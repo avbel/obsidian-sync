@@ -16,6 +16,15 @@ export interface ConflictRecord {
 	conflictCopyPath: string;
 }
 
+export type ConflictChoice = 'mine' | 'remote' | 'both';
+
+/**
+ * `missing-copy`: the user deleted or renamed the copy themselves — the record is
+ * stale and should be dropped. `stale`: the note changed between reading it and
+ * writing the resolution, so nothing was written and the user must choose again.
+ */
+export type ConflictOutcome = 'resolved' | 'missing-copy' | 'stale';
+
 export interface SyncEngineDeps {
 	vaultId: string;
 	client: ApiClient;
@@ -387,6 +396,41 @@ export class SyncEngine {
 		const record: ConflictRecord = { path, conflictCopyPath: copyPath };
 		this.#status('conflict');
 		this.#deps.onConflict?.(record);
+	}
+
+	/**
+	 * Apply a user's choice to an already-copied conflict (§8). Both sides are plain
+	 * vault files by this point, so this touches no network and no server version.
+	 *
+	 * `mine` deliberately leaves the index recording the remote version: that is what
+	 * makes the restored bytes read as dirty, so the next push commits them against the
+	 * current head instead of needing a second commit path here.
+	 */
+	async resolveConflict(record: ConflictRecord, choice: ConflictChoice): Promise<ConflictOutcome> {
+		const { vault } = this.#deps;
+		if (choice === 'both') {
+			return 'resolved';
+		}
+		if (!(await vault.exists(record.conflictCopyPath))) {
+			return 'missing-copy';
+		}
+		if (choice === 'remote') {
+			await vault.trash(record.conflictCopyPath);
+			return 'resolved';
+		}
+
+		const mine = await vault.read(record.conflictCopyPath);
+		const current = (await vault.exists(record.path)) ? await vault.read(record.path) : undefined;
+		try {
+			await vault.write(record.path, mine, { expected: current });
+		} catch (error) {
+			if (error instanceof StaleWriteError) {
+				return 'stale';
+			}
+			throw error;
+		}
+		await vault.trash(record.conflictCopyPath);
+		return 'resolved';
 	}
 }
 
