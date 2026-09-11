@@ -290,6 +290,16 @@ pnpm build       # protocol + server (tsc), plugin (esbuild bundle)
 
 To iterate on the plugin against a real vault, symlink `packages/plugin` into `<vault>/.obsidian/plugins/obsidian-sync/` and run `node packages/plugin/esbuild.config.mjs` for a watching build.
 
+The container image carries no toolchain: CI runs `pnpm deploy --filter @obsidian-sync/server --prod out` on the runner and the Dockerfile only copies `out/` into distroless. `docker build` therefore needs that directory to exist first:
+
+```bash
+pnpm install
+pnpm --filter @obsidian-sync/protocol build
+pnpm --filter @obsidian-sync/server build
+pnpm deploy --filter @obsidian-sync/server --prod out
+docker build -f packages/server/Dockerfile -t obsidian-sync-server .
+```
+
 The highest-value suite is `packages/plugin/src/engine/engine.test.ts`: two in-process virtual devices driving one in-memory model of the server through concurrent edits, merges, conflicts, deletes, and reconnects. Sync bugs live in races, not in units.
 
 ---
