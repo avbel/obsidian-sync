@@ -297,6 +297,20 @@ describe('regressions', () => {
 		expect(laptop.vault.getText('note.md')).toBe('alive\n');
 	});
 
+	test('identical content never produces a conflict copy, even with no ancestor', async () => {
+		const laptop = await makeDevice('laptop');
+		laptop.vault.putText('same.md', 'identical bytes\n');
+		await laptop.engine.pushAll();
+
+		const phone = await makeDevice('phone');
+		phone.vault.putText('same.md', 'identical bytes\n');
+		await phone.engine.pullAll();
+
+		expect(phone.conflicts).toEqual([]);
+		expect((await phone.vault.list()).map((file) => file.path)).toEqual(['same.md']);
+		expect(phone.vault.getText('same.md')).toBe('identical bytes\n');
+	});
+
 	test('a selective-sync change applies to a running engine', async () => {
 		const device = await makeDevice('device');
 		device.vault.putText('note.md', 'text\n');

@@ -97,7 +97,7 @@ docker run -d --name obsidian-sync \
 | Tag | Tracks |
 |---|---|
 | `latest` | The newest release. |
-| `0.0.7`, `0.0` | A specific release. |
+| `0.0.8`, `0.0` | A specific release. |
 | `main` | Every push to the default branch. |
 | `sha-<short>` | A specific commit. |
 
@@ -268,6 +268,7 @@ All routes require `Authorization: Bearer <token>` except health.
 |---|---|
 | Local unchanged since the last sync | Remote is written directly. |
 | Local changed, text file, ancestor known | Three-way merge. Clean → merged and pushed. Conflicted → remote takes the file, local is saved as `note (conflict YYYY-MM-DD HH-mm-ss).md`. |
+| Identical bytes on both sides | Adopted silently. Matching content is never a conflict. |
 | Local changed, no ancestor | Conflict copy. Merging without an ancestor invents changes. |
 | Binary file | Conflict copy always. |
 | Deleted remotely, modified locally | Local wins and is pushed as a new version. Deletion never beats an edit. |

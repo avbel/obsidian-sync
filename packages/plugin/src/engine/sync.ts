@@ -292,6 +292,14 @@ export class SyncEngine {
 			return 0;
 		}
 
+		// Identical bytes are never a conflict, however the two sides got there. Without
+		// this, a file whose index entry was lost looks changed with no known ancestor
+		// and takes the conflict-copy path, duplicating content that already matches.
+		if (localBytes !== undefined && localHash === (await hashBytes(remote.bytes))) {
+			await this.#recordRemote(remote);
+			return 0;
+		}
+
 		try {
 			if (!localChanged || localBytes === undefined) {
 				await vault.write(path, remote.bytes, { mtime: remote.mtime, expected: localBytes });
