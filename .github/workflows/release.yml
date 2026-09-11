@@ -17,9 +17,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 26
+          # setup-node caches the pnpm store by default, but only on an exact
+          # lockfile hash. Caching it below instead adds a restore-key fallback,
+          # so a changed lockfile reuses every package that did not change.
+          package-manager-cache: false
 
-      # Explicit rather than setup-node's `cache: pnpm`, which has no restore-keys
-      # and so re-downloads the whole store whenever the lockfile changes.
       - id: store
         run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
@@ -80,9 +82,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 26
+          # setup-node caches the pnpm store by default, but only on an exact
+          # lockfile hash. Caching it below instead adds a restore-key fallback,
+          # so a changed lockfile reuses every package that did not change.
+          package-manager-cache: false
 
-      # Explicit rather than setup-node's `cache: pnpm`, which has no restore-keys
-      # and so re-downloads the whole store whenever the lockfile changes.
       - id: store
         run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
