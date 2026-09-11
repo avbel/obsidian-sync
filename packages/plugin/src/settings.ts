@@ -44,15 +44,16 @@ export const defaultSettings: PluginSettings = {
 	retentionDays: 90,
 };
 
+// secretStorage ids must be lowercase alphanumeric with dashes; a slash throws.
 export const secretKeys = {
-	token: 'obsidian-sync/token',
-	passphrase: 'obsidian-sync/passphrase',
+	token: 'obsidian-sync-token',
+	passphrase: 'obsidian-sync-passphrase',
 } as const;
 
 /** The two secrets, read from Obsidian's secret storage, never from data.json. */
 export interface SecretsPort {
-	get(id: string): string | null;
-	set(id: string, value: string): void;
+	getSecret(id: string): string | null;
+	setSecret(id: string, value: string): void;
 }
 
 export function toSelectiveSyncOptions(settings: PluginSettings): SelectiveSyncOptions {

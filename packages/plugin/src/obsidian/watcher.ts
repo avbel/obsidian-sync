@@ -12,17 +12,26 @@ export interface DirtyBatch {
  */
 export class DebouncedWatcher {
 	readonly #vault: Vault;
-	readonly #debounceMs: number;
-	readonly #onFlush: (batch: DirtyBatch) => void;
+	#debounceMs: number;
+	readonly #onFlush: (batch: DirtyBatch) => void | Promise<void>;
 	readonly #changed = new Set<string>();
 	readonly #deleted = new Set<string>();
 	#timer: ReturnType<typeof setTimeout> | undefined;
 	#refs: EventRef[] = [];
 
-	constructor(vault: Vault, debounceMs: number, onFlush: (batch: DirtyBatch) => void) {
+	constructor(
+		vault: Vault,
+		debounceMs: number,
+		onFlush: (batch: DirtyBatch) => void | Promise<void>,
+	) {
 		this.#vault = vault;
 		this.#debounceMs = debounceMs;
 		this.#onFlush = onFlush;
+	}
+
+	/** Applies a settings change without dropping the batch already collecting. */
+	setDebounce(debounceMs: number): void {
+		this.#debounceMs = debounceMs;
 	}
 
 	start(): void {
@@ -79,7 +88,16 @@ export class DebouncedWatcher {
 			const batch: DirtyBatch = { changed: [...this.#changed], deleted: [...this.#deleted] };
 			this.#changed.clear();
 			this.#deleted.clear();
-			this.#onFlush(batch);
+			// A failed flush puts the paths back: clearing them before the upload is
+			// acknowledged is how an offline delete gets forgotten entirely.
+			void Promise.resolve(this.#onFlush(batch)).catch(() => {
+				for (const path of batch.changed) {
+					this.#changed.add(path);
+				}
+				for (const path of batch.deleted) {
+					this.#deleted.add(path);
+				}
+			});
 		}, this.#debounceMs);
 	}
 }

@@ -1,4 +1,12 @@
-import { type EventRef, Notice, Platform, Plugin, requestUrl, requireApiVersion } from 'obsidian';
+import {
+	type EventRef,
+	Notice,
+	Platform,
+	Plugin,
+	requestUrl,
+	requireApiVersion,
+	type SecretStorage,
+} from 'obsidian';
 import { derivePurposeKeys, type PurposeKeys } from './crypto/keys.js';
 import { pluginId } from './engine/selective.js';
 import { type ConflictRecord, type EngineStatus, SyncEngine } from './engine/sync.js';
@@ -29,10 +37,6 @@ import {
 
 const minimumApiVersion = '1.13.2';
 
-interface ObsidianSecrets extends SecretsPort {
-	removeSecret(id: string): void;
-}
-
 export default class SyncPlugin extends Plugin {
 	settings: PluginSettings = { ...defaultSettings };
 	lastStatus: EngineStatus = 'idle';
@@ -45,6 +49,9 @@ export default class SyncPlugin extends Plugin {
 	#watcher: DebouncedWatcher | null = null;
 	#statusBarItem: HTMLElement | null = null;
 	#eventRefs: EventRef[] = [];
+	#pendingDeletes = new Set<string>();
+	#syncing: Promise<void> | null = null;
+	#resyncRequested = false;
 
 	override async onload(): Promise<void> {
 		if (!requireApiVersion(minimumApiVersion)) {
@@ -53,7 +60,6 @@ export default class SyncPlugin extends Plugin {
 		}
 
 		await this.loadSettings();
-		this.#openSecrets();
 
 		this.addSettingTab(new SyncSettingTab(this));
 		this.addRibbonIcon('refresh-cw', 'Open sync status', () => void this.openStatusView());
@@ -80,11 +86,11 @@ export default class SyncPlugin extends Plugin {
 	}
 
 	secretOrEmpty(id: string): string {
-		return this.#secrets()?.get(id) ?? '';
+		return this.#secrets()?.getSecret(id) ?? '';
 	}
 
 	setSecret(id: string, value: string): void {
-		this.#secrets()?.set(id, value);
+		this.#secrets()?.setSecret(id, value);
 	}
 
 	async saveSettings(): Promise<void> {
@@ -96,16 +102,9 @@ export default class SyncPlugin extends Plugin {
 		this.settings = { ...defaultSettings, ...(stored ?? {}) };
 	}
 
-	#secrets(): ObsidianSecrets | null {
-		const storage = this.app.secretStorage;
-		if (storage === undefined) {
-			return null;
-		}
-		return storage as unknown as ObsidianSecrets;
-	}
-
-	#openSecrets(): void {
-		// secretStorage is async-ready but exposed as getSecret/setSecret; nothing to await.
+	#secrets(): SecretsPort | null {
+		const storage = this.app.secretStorage as SecretStorage | undefined;
+		return storage ?? null;
 	}
 
 	#registerCommands(): void {
@@ -214,6 +213,10 @@ export default class SyncPlugin extends Plugin {
 		const client = this.clientForNudge;
 		const vaultId = this.vaultIdForNudge;
 		const local = new LocalState(createLocalStateStore(this.app));
+		const onUnauthorized = (): void => {
+			this.#setStatus('error');
+			new Notice('Obsidian Sync: the server rejected the token. Sync stopped.');
+		};
 		this.#nudge = selectNudgeSource({
 			serverUrl: this.settings.serverUrl,
 			preference: this.settings.transport,
@@ -223,6 +226,7 @@ export default class SyncPlugin extends Plugin {
 					vaultId,
 					waitSeconds: this.settings.longPollWaitSeconds,
 					getCursor: () => local.getCursor(),
+					onUnauthorized,
 				}),
 			interval: () =>
 				createIntervalSource({ intervalMs: this.settings.pollIntervalSeconds * 1000 }),
@@ -239,55 +243,75 @@ export default class SyncPlugin extends Plugin {
 							vaultId,
 							waitSeconds: this.settings.longPollWaitSeconds,
 							getCursor: () => local.getCursor(),
+							onUnauthorized,
 						});
-						this.#nudge.start(() => void this.requestSync());
+						this.#nudge.start(() => this.requestSync());
 					},
 				}),
 		});
-		this.#nudge.start(() => void this.requestSync());
+		this.#nudge.start(() => this.requestSync());
 	}
 
 	#startWatcher(): void {
 		this.#watcher = new DebouncedWatcher(this.app.vault, this.settings.debounceMs, (batch) => {
-			void this.#flushDirty(batch.changed, batch.deleted);
+			for (const path of batch.deleted) {
+				this.#pendingDeletes.add(path);
+			}
+			return this.requestSync();
 		});
 		this.#watcher.start();
 	}
 
-	async #flushDirty(changed: string[], deleted: string[]): Promise<void> {
-		if (this.#engine === null) {
-			return;
+	/**
+	 * Coalesces overlapping triggers: nudges arriving during a run set a flag instead
+	 * of starting a second engine pass over the same vault.
+	 */
+	async requestSync(): Promise<void> {
+		if (this.#syncing !== null) {
+			this.#resyncRequested = true;
+			return this.#syncing;
 		}
-		if (changed.length === 0 && deleted.length === 0) {
-			return;
-		}
+		this.#syncing = (async () => {
+			do {
+				this.#resyncRequested = false;
+				await this.#runSync();
+			} while (this.#resyncRequested);
+		})();
 		try {
-			await this.#engine.pushAll(deleted);
+			await this.#syncing;
+		} finally {
+			this.#syncing = null;
+		}
+	}
+
+	async #runSync(): Promise<void> {
+		if (this.#engine === null) {
+			await this.reloadEngine();
+			return;
+		}
+		// Drained rather than read, so a failure can put them back: a delete has no
+		// on-disk trace to rediscover beyond the index, which pushAll also reconciles.
+		const deletes = [...this.#pendingDeletes];
+		this.#pendingDeletes.clear();
+		try {
+			this.#setStatus('syncing');
 			await this.#engine.pullAll();
+			await this.#engine.pushAll(deletes);
 			this.lastSyncAt = Date.now();
+			this.#setStatus('idle');
 		} catch (error) {
+			for (const path of deletes) {
+				this.#pendingDeletes.add(path);
+			}
 			this.#setStatus('error');
 			this.#logError(error);
 		}
 	}
 
-	async requestSync(): Promise<void> {
-		if (this.#engine === null) {
-			await this.reloadEngine();
-			return;
-		}
-		try {
-			this.#setStatus('syncing');
-			await this.#engine.pullAll();
-			await this.#engine.pushAll();
-			this.lastSyncAt = Date.now();
-			this.#setStatus('idle');
-			this.#renderStatusBar();
-			this.#refreshStatusView();
-		} catch (error) {
-			this.#setStatus('error');
-			this.#logError(error);
-		}
+	/** Pushes changed settings into a running engine so they apply without a restart. */
+	applyLiveSettings(): void {
+		this.#engine?.updateSelective(toSelectiveSyncOptions(this.settings));
+		this.#watcher?.setDebounce(this.settings.debounceMs);
 	}
 
 	async reconcile(): Promise<void> {
@@ -354,6 +378,8 @@ export default class SyncPlugin extends Plugin {
 
 	#stopEngine(): void {
 		this.#nudge?.stop();
+		this.#syncing = null;
+		this.#resyncRequested = false;
 		this.#watcher?.stop();
 		this.#nudge = null;
 		this.#watcher = null;

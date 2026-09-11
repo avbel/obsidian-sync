@@ -7,7 +7,7 @@ import { type ApiClient, ConflictError } from '../transport/client.js';
 import { decodeFile, encodeFile } from './codec.js';
 import { merge3 } from './merge.js';
 import { isPathIncluded, type SelectiveSyncOptions } from './selective.js';
-import type { VaultAdapter, VaultFile } from './vault.js';
+import { StaleWriteError, type VaultAdapter, type VaultFile } from './vault.js';
 
 export type EngineStatus = 'idle' | 'syncing' | 'conflict' | 'error';
 
@@ -28,6 +28,15 @@ export interface SyncEngineDeps {
 	deviceId: string;
 	onStatus?: (status: EngineStatus) => void;
 	onConflict?: (conflict: ConflictRecord) => void;
+}
+
+interface RemoteVersion {
+	fileId: string;
+	path: string;
+	bytes: Uint8Array;
+	mtime: number;
+	chunks: string[];
+	headVersion: string;
 }
 
 const textExtensions = [
@@ -65,9 +74,16 @@ function textToBytes(text: string): Uint8Array {
  */
 export class SyncEngine {
 	readonly #deps: SyncEngineDeps;
+	#selective: SelectiveSyncOptions;
 
 	constructor(deps: SyncEngineDeps) {
 		this.#deps = deps;
+		this.#selective = deps.selective;
+	}
+
+	/** Applies a settings change to a running engine, so a category toggle takes effect at once. */
+	updateSelective(selective: SelectiveSyncOptions): void {
+		this.#selective = selective;
 	}
 
 	#status(status: EngineStatus): void {
@@ -76,7 +92,7 @@ export class SyncEngine {
 
 	/** Push every file whose bytes differ from the index, and every local delete. */
 	async pushAll(deletedPaths: string[] = []): Promise<void> {
-		const { vault, index, selective } = this.#deps;
+		const { vault, index } = this.#deps;
 		this.#status('syncing');
 		try {
 			// Deletes first (§9): draining a queue after a long offline period replays
@@ -85,8 +101,19 @@ export class SyncEngine {
 				await this.#pushDelete(path);
 			}
 
+			// A delete dropped by a crash or a failed upload leaves no event to replay,
+			// so absence is re-derived: an indexed path that is gone locally is a delete.
+			for (const entry of index.entries()) {
+				if (isPathIncluded(entry.path, this.#selective) && !(await vault.exists(entry.path))) {
+					await this.#pushDelete(entry.path);
+				}
+			}
+
 			for (const file of await vault.list()) {
-				if (!isPathIncluded(file.path, selective) || file.size > selective.maxFileBytes) {
+				if (
+					!isPathIncluded(file.path, this.#selective) ||
+					file.size > this.#selective.maxFileBytes
+				) {
 					continue;
 				}
 				const data = await vault.read(file.path);
@@ -178,10 +205,14 @@ export class SyncEngine {
 		bases.delete(known.fileId);
 	}
 
-	/** Pull and durably apply everything past the stored cursor (§7.2). */
-	async pullAll(): Promise<void> {
+	/**
+	 * Pull and durably apply everything past the stored cursor (§7.2). Returns how many
+	 * files ended up merged locally, which the caller pushes back (§8).
+	 */
+	async pullAll(): Promise<number> {
 		const { vaultId, client, local } = this.#deps;
 		this.#status('syncing');
+		let merged = 0;
 		try {
 			let cursor = local.getCursor();
 			let hasMore = true;
@@ -189,9 +220,9 @@ export class SyncEngine {
 				const page = await client.changes(vaultId, cursor, 0);
 				for (const change of page.changes) {
 					if (change.kind === 'delete') {
-						await this.#applyRemoteDelete(change.fileId);
+						merged += await this.#applyRemoteDelete(change.fileId);
 					} else {
-						await this.#pullFileById(change.fileId);
+						merged += await this.#pullFileById(change.fileId);
 					}
 				}
 				cursor = page.seq;
@@ -200,43 +231,38 @@ export class SyncEngine {
 			}
 			await this.#deps.index.save();
 			await this.#deps.bases.save();
+			return merged;
 		} finally {
 			this.#status('idle');
 		}
 	}
 
-	async #pullFileById(fileId: string): Promise<void> {
-		const { vaultId, client, keys, index, selective } = this.#deps;
+	async #pullFileById(fileId: string): Promise<number> {
+		const { vaultId, client, keys } = this.#deps;
 		const state = (await client.state(vaultId)).files.find((file) => file.fileId === fileId);
 		if (state === undefined) {
-			return;
+			return 0;
 		}
 		const decoded = await decodeFile(keys, fileId, state.metaBlob, (address) =>
 			client.getBlob(vaultId, address),
 		);
-		if (!isPathIncluded(decoded.path, selective)) {
-			return;
+		if (!isPathIncluded(decoded.path, this.#selective)) {
+			return 0;
 		}
-		await this.#applyRemoteFile(
+		return this.#applyRemoteFile({
 			fileId,
-			decoded.path,
-			decoded.data,
-			decoded.meta.mtime,
-			decoded.meta.chunks,
-			state.headVersion,
-		);
+			path: decoded.path,
+			bytes: decoded.data,
+			mtime: decoded.meta.mtime,
+			chunks: decoded.meta.chunks,
+			headVersion: state.headVersion,
+		});
 	}
 
 	/** Apply one remote version to the local file under §8's resolution table. */
-	async #applyRemoteFile(
-		fileId: string,
-		path: string,
-		remoteBytes: Uint8Array,
-		remoteMtime: number,
-		chunks: string[],
-		headVersion: string,
-	): Promise<void> {
+	async #applyRemoteFile(remote: RemoteVersion, attempt = 0): Promise<number> {
 		const { vault, index, bases } = this.#deps;
+		const { path, fileId, headVersion } = remote;
 		const known = index.get(path);
 		const localExists = await vault.exists(path);
 		const localBytes = localExists ? await vault.read(path) : undefined;
@@ -244,86 +270,93 @@ export class SyncEngine {
 
 		const localChanged = known === undefined || localHash === undefined || known.hash !== localHash;
 
-		// Local already matches what the server holds: nothing to do.
 		if (known !== undefined && known.versionId === headVersion && !localChanged) {
-			return;
+			return 0;
 		}
 
-		if (!localChanged || localBytes === undefined) {
-			await this.#writeRemote(path, remoteBytes, remoteMtime, fileId, headVersion, chunks);
-			return;
-		}
-
-		// Deleted remotely then modified locally is never reached here: pullAll applies
-		// the delete, and the surviving local edit re-pushes next cycle (deletion loses).
-
-		const base = bases.get(fileId);
-		if (isTextPath(path) && base !== undefined) {
-			const merged = merge3(base, bytesToText(localBytes), bytesToText(remoteBytes));
-			if (merged.ok) {
-				const mergedBytes = textToBytes(merged.text);
-				await vault.write(path, mergedBytes, remoteMtime);
-				await this.#rememberMerge(path, mergedBytes, remoteMtime, fileId, headVersion, chunks);
-				return;
+		try {
+			if (!localChanged || localBytes === undefined) {
+				await vault.write(path, remote.bytes, { mtime: remote.mtime, expected: localBytes });
+				await this.#recordRemote(remote);
+				return 0;
 			}
-			// Conflicted: keep the user's bytes out-of-band, then let remote take the file.
+
+			const base = bases.get(fileId);
+			if (isTextPath(path) && base !== undefined) {
+				const merged = merge3(base, bytesToText(localBytes), bytesToText(remote.bytes));
+				if (merged.ok) {
+					await vault.write(path, textToBytes(merged.text), {
+						mtime: remote.mtime,
+						expected: localBytes,
+					});
+					// The index records the remote ancestor, not the merged bytes, so the
+					// merge stays dirty and the next push commits it against headVersion.
+					await this.#recordRemote(remote);
+					return 1;
+				}
+			}
+
+			// Conflicted, binary, or no ancestor: keep the user's bytes out-of-band, then
+			// let remote take the file. Merging without an ancestor invents changes.
 			await this.#conflictCopy(path, localBytes);
-			await this.#writeRemote(path, remoteBytes, remoteMtime, fileId, headVersion, chunks);
-			return;
-		}
-
-		// Binary, or no ancestor: conflict copy always — merging without a base invents changes.
-		await this.#conflictCopy(path, localBytes);
-		await this.#writeRemote(path, remoteBytes, remoteMtime, fileId, headVersion, chunks);
-	}
-
-	async #writeRemote(
-		path: string,
-		bytes: Uint8Array,
-		mtime: number,
-		fileId: string,
-		versionId: string,
-		chunks: string[],
-	): Promise<void> {
-		const { vault, index, bases } = this.#deps;
-		await vault.write(path, bytes, mtime);
-		index.set({ fileId, versionId, path, hash: await hashBytes(bytes), mtime, chunks });
-		if (isTextPath(path)) {
-			bases.set(fileId, bytesToText(bytes));
+			await vault.write(path, remote.bytes, { mtime: remote.mtime, expected: localBytes });
+			await this.#recordRemote(remote);
+			return 0;
+		} catch (error) {
+			if (error instanceof StaleWriteError && attempt < 2) {
+				return this.#applyRemoteFile(remote, attempt + 1);
+			}
+			throw error;
 		}
 	}
 
-	async #rememberMerge(
-		path: string,
-		bytes: Uint8Array,
-		mtime: number,
-		fileId: string,
-		versionId: string,
-		chunks: string[],
-	): Promise<void> {
+	async #recordRemote(remote: RemoteVersion): Promise<void> {
 		const { index, bases } = this.#deps;
-		index.set({ fileId, versionId, path, hash: await hashBytes(bytes), mtime, chunks });
-		if (isTextPath(path)) {
-			bases.set(fileId, bytesToText(bytes));
+		index.set({
+			fileId: remote.fileId,
+			versionId: remote.headVersion,
+			path: remote.path,
+			hash: await hashBytes(remote.bytes),
+			mtime: remote.mtime,
+			chunks: remote.chunks,
+		});
+		if (isTextPath(remote.path)) {
+			bases.set(remote.fileId, bytesToText(remote.bytes));
 		}
 	}
 
-	async #applyRemoteDelete(fileId: string): Promise<void> {
-		const { index, bases, vault, selective } = this.#deps;
+	async #applyRemoteDelete(fileId: string): Promise<number> {
+		const { index, bases, vault } = this.#deps;
 		const entry = index.entries().find((candidate) => candidate.fileId === fileId);
 		if (entry === undefined) {
-			return;
+			return 0;
 		}
-		if (isPathIncluded(entry.path, selective) && (await vault.exists(entry.path))) {
-			await vault.trash(entry.path);
+
+		let preserved = 0;
+		if (isPathIncluded(entry.path, this.#selective) && (await vault.exists(entry.path))) {
+			const localHash = await hashBytes(await vault.read(entry.path));
+			// §8: deletion never beats an edit. Forgetting the remote identity leaves the
+			// surviving file dirty, so the next push republishes it as a fresh version.
+			if (localHash === entry.hash) {
+				await vault.trash(entry.path);
+			} else {
+				preserved = 1;
+			}
 		}
+
 		index.delete(entry.path);
 		bases.delete(fileId);
+		return preserved;
 	}
 
 	async #conflictCopy(path: string, localBytes: Uint8Array): Promise<void> {
 		const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, ' ').replace(/ /g, '-');
-		const copyPath = `${path.replace(/\.[^.]+$/, '')} (conflict ${stamp}).md`;
+		const extension = /\.[^./]+$/.exec(path)?.[0] ?? '';
+		const stem = `${path.slice(0, path.length - extension.length)} (conflict ${stamp})`;
+		let copyPath = `${stem}${extension}`;
+		for (let suffix = 2; await this.#deps.vault.exists(copyPath); suffix += 1) {
+			copyPath = `${stem} ${suffix}${extension}`;
+		}
 		await this.#deps.vault.write(copyPath, localBytes);
 		const record: ConflictRecord = { path, conflictCopyPath: copyPath };
 		this.#status('conflict');

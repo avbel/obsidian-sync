@@ -181,3 +181,97 @@ describe('two clients on one vault', () => {
 		expect(server.blobs.size).toBe(before);
 	});
 });
+
+describe('regressions', () => {
+	test('a clean merge made during a pull is uploaded by the next push', async () => {
+		const seed = await makeDevice('seed');
+		seed.vault.putText('doc.md', 'l1\nl2\nl3\nl4\n');
+		await seed.engine.pushAll();
+
+		const a = await makeDevice('a');
+		const b = await makeDevice('b');
+		await a.engine.pullAll();
+		await b.engine.pullAll();
+
+		a.vault.putText('doc.md', 'l1\nA-EDIT\nl3\nl4\n');
+		await a.engine.pushAll();
+
+		b.vault.putText('doc.md', 'l1\nl2\nl3\nB-EDIT\n');
+		expect(await b.engine.pullAll()).toBe(1);
+		expect(b.vault.getText('doc.md')).toBe('l1\nA-EDIT\nl3\nB-EDIT\n');
+		await b.engine.pushAll();
+
+		const late = await makeDevice('late');
+		await late.engine.pullAll();
+		expect(late.vault.getText('doc.md')).toBe('l1\nA-EDIT\nl3\nB-EDIT\n');
+	});
+
+	test('a remote delete keeps an unsynced local edit and republishes it', async () => {
+		const laptop = await makeDevice('laptop');
+		laptop.vault.putText('note.md', 'original\n');
+		await laptop.engine.pushAll();
+
+		const phone = await makeDevice('phone');
+		await phone.engine.pullAll();
+
+		phone.vault.putText('note.md', 'edited on the phone\n');
+		await laptop.vault.remove('note.md');
+		await laptop.engine.pushAll(['note.md']);
+
+		await phone.engine.pullAll();
+		expect(phone.vault.getText('note.md')).toBe('edited on the phone\n');
+
+		await phone.engine.pushAll();
+		await laptop.engine.pullAll();
+		expect(laptop.vault.getText('note.md')).toBe('edited on the phone\n');
+	});
+
+	test('a delete lost before it was queued is recovered from the index', async () => {
+		const laptop = await makeDevice('laptop');
+		laptop.vault.putText('gone.md', 'bye\n');
+		await laptop.engine.pushAll();
+
+		const phone = await makeDevice('phone');
+		await phone.engine.pullAll();
+
+		await laptop.vault.remove('gone.md');
+		await laptop.engine.pushAll();
+
+		await phone.engine.pullAll();
+		expect(await phone.vault.exists('gone.md')).toBe(false);
+	});
+
+	test('a selective-sync change applies to a running engine', async () => {
+		const device = await makeDevice('device');
+		device.vault.putText('note.md', 'text\n');
+		device.vault.putText('attachment.bin', 'bytes\n');
+		await device.engine.pushAll();
+		expect(device.index.get('attachment.bin')).toBeDefined();
+
+		device.engine.updateSelective({
+			...full,
+			categories: { ...full.categories, attachments: false },
+		});
+		device.vault.putText('second.bin', 'more bytes\n');
+		await device.engine.pushAll();
+
+		expect(device.index.get('second.bin')).toBeUndefined();
+	});
+
+	test('a keystroke landing mid-apply survives instead of being overwritten', async () => {
+		const seed = await makeDevice('seed');
+		seed.vault.putText('race.md', 'line one\nline two\n');
+		await seed.engine.pushAll();
+
+		const phone = await makeDevice('phone');
+		await phone.engine.pullAll();
+
+		seed.vault.putText('race.md', 'line one EDITED\nline two\n');
+		await seed.engine.pushAll();
+
+		phone.vault.raceOnce('race.md', 'line one\nline two\ntyped by the user\n');
+		await phone.engine.pullAll();
+
+		expect(phone.vault.getText('race.md')).toBe('line one EDITED\nline two\ntyped by the user\n');
+	});
+});

@@ -18,6 +18,22 @@ interface BlobParams extends VaultParams {
 export function registerBlobRoutes(scope: FastifyInstance, dependencies: AppDependencies): void {
 	const { db, writer, blobs } = dependencies;
 
+	// A blob on disk with no blob_ref row is invisible to commit, so acknowledging it
+	// as present would strand the client: check and PUT would both say "have it" while
+	// every commit named it missing. Re-registering repairs an interrupted upload.
+	const registerExisting = async (vaultId: string, address: string): Promise<boolean> => {
+		const found = await blobs.stat(vaultId, address);
+		if (found === undefined) {
+			return false;
+		}
+		await writer.run(() => {
+			db.prepare(
+				'INSERT INTO blob_ref (vault_id, addr, bytes, refcount) VALUES (?, ?, ?, 0) ON CONFLICT (vault_id, addr) DO NOTHING',
+			).run(vaultId, address, found.size);
+		});
+		return true;
+	};
+
 	scope.put<{ Params: BlobParams }>(
 		'/v1/vaults/:vaultId/blobs/:address',
 		async (request, reply) => {
@@ -29,7 +45,7 @@ export function registerBlobRoutes(scope: FastifyInstance, dependencies: AppDepe
 				return reply.code(404).send({ error: 'vault_not_found' });
 			}
 
-			if (await blobs.has(vaultId, address)) {
+			if (await registerExisting(vaultId, address)) {
 				return reply.code(204).send();
 			}
 
@@ -62,7 +78,7 @@ export function registerBlobRoutes(scope: FastifyInstance, dependencies: AppDepe
 
 		const missing: string[] = [];
 		for (const address of request.body.addresses) {
-			if (!(await blobs.has(vaultId, address))) {
+			if (!(await registerExisting(vaultId, address))) {
 				missing.push(address);
 			}
 		}

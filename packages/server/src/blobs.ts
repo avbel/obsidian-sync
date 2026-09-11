@@ -17,7 +17,12 @@ export interface BlobStore {
 	put(vaultId: string, address: string, data: Uint8Array): Promise<void>;
 	get(vaultId: string, address: string): Promise<Uint8Array | undefined>;
 	remove(vaultId: string, address: string): Promise<void>;
-	writtenAt(vaultId: string, address: string): Promise<number | undefined>;
+	stat(vaultId: string, address: string): Promise<BlobStat | undefined>;
+}
+
+export interface BlobStat {
+	size: number;
+	writtenAt: number;
 }
 
 function assertSafe(vaultId: string, address: string): void {
@@ -103,12 +108,13 @@ export function createBlobStore(rootDir: string): BlobStore {
 			await rm(blobPath(vaultId, address), { force: true });
 		},
 
-		async writtenAt(vaultId, address) {
+		async stat(vaultId, address) {
 			if (!vaultIdPattern.test(vaultId) || !addressPattern.test(address)) {
 				return undefined;
 			}
 			try {
-				return (await stat(blobPath(vaultId, address))).mtimeMs;
+				const found = await stat(blobPath(vaultId, address));
+				return { size: found.size, writtenAt: found.mtimeMs };
 			} catch (error) {
 				if (isMissing(error)) {
 					return undefined;

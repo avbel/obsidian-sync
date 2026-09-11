@@ -68,7 +68,13 @@ async function runMaintenance(
 		});
 
 		for (const vaultId of vaultIds) {
-			const reclaimed = await sweepOrphanBlobs(db, blobs, vaultId, config.orphanBlobGraceMs);
+			const reclaimed = await sweepOrphanBlobs({
+				db,
+				writer,
+				blobs,
+				vaultId,
+				graceMs: config.orphanBlobGraceMs,
+			});
 			if (reclaimed > 0) {
 				log.info({ vaultId, reclaimed }, 'orphan sweep reclaimed blobs');
 			}

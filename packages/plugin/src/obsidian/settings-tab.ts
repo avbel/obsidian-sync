@@ -35,6 +35,7 @@ export class SyncSettingTab extends PluginSettingTab {
 		const update = async (patch: Partial<PluginSettings>): Promise<void> => {
 			Object.assign(settings, patch);
 			await this.#plugin.saveSettings();
+			this.#plugin.applyLiveSettings();
 		};
 
 		new Setting(containerEl).setName('Connection').setHeading();

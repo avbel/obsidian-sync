@@ -85,6 +85,20 @@ describe('PUT blob', () => {
 		expect((await upload(addressOne)).statusCode).toBe(204);
 	});
 
+	test('re-registers a blob whose blob_ref row was lost mid-upload', async () => {
+		await upload(addressOne);
+		dependencies.db
+			.prepare('DELETE FROM blob_ref WHERE vault_id = ? AND addr = ?')
+			.run(vaultId, addressOne);
+
+		expect((await upload(addressOne)).statusCode).toBe(204);
+		expect(
+			dependencies.db
+				.prepare('SELECT bytes FROM blob_ref WHERE vault_id = ? AND addr = ?')
+				.get(vaultId, addressOne),
+		).toEqual({ bytes: payload.length });
+	});
+
 	test('rejects a malformed address', async () => {
 		const response = await app.inject({
 			method: 'PUT',
@@ -131,6 +145,26 @@ describe('POST blobs/check', () => {
 			payload: { addresses: [addressOne, addressTwo] },
 		});
 		expect(response.json().missing).toEqual([addressTwo]);
+	});
+
+	test('re-registers an orphaned blob rather than reporting it present but uncommittable', async () => {
+		await upload(addressOne);
+		dependencies.db
+			.prepare('DELETE FROM blob_ref WHERE vault_id = ? AND addr = ?')
+			.run(vaultId, addressOne);
+
+		const response = await app.inject({
+			method: 'POST',
+			url: `/v1/vaults/${vaultId}/blobs/check`,
+			headers: authorised(aliceToken),
+			payload: { addresses: [addressOne] },
+		});
+		expect(response.json().missing).toEqual([]);
+		expect(
+			dependencies.db
+				.prepare('SELECT 1 FROM blob_ref WHERE vault_id = ? AND addr = ?')
+				.get(vaultId, addressOne),
+		).toBeDefined();
 	});
 
 	test('rejects a malformed body', async () => {

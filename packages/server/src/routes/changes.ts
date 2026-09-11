@@ -53,10 +53,14 @@ export function registerChangeRoutes(scope: FastifyInstance, dependencies: AppDe
 				page = readChangesSince(db, vaultId, since, pageSize);
 			}
 
+			// The cursor names the last row actually delivered. Reporting the head of the
+			// log instead would let a truncated page advance the client past everything
+			// the truncation left behind, skipping it permanently.
+			const lastDelivered = page.changes.at(-1)?.seq;
 			const response: ChangesResponse = {
 				changes: page.changes,
 				hasMore: page.hasMore,
-				seq: latestSeq(db, vaultId),
+				seq: lastDelivered ?? Math.max(since, latestSeq(db, vaultId)),
 			};
 			return reply.send(response);
 		},

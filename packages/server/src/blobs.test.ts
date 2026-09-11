@@ -67,12 +67,13 @@ describe('BlobStore', () => {
 	test('reports the write time of a stored blob', async () => {
 		const before = Date.now();
 		await store.put('v1', address, payload);
-		const writtenAt = await store.writtenAt('v1', address);
-		expect(writtenAt).toBeGreaterThanOrEqual(before - 2000);
+		const found = await store.stat('v1', address);
+		expect(found?.writtenAt).toBeGreaterThanOrEqual(before - 2000);
+		expect(found?.size).toBe(4);
 	});
 
 	test('reports undefined write time for an absent blob', async () => {
-		await expect(store.writtenAt('v1', address)).resolves.toBeUndefined();
+		await expect(store.stat('v1', address)).resolves.toBeUndefined();
 	});
 
 	test('rejects an address that is not 64 hex characters', async () => {

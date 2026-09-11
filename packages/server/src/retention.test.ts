@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { type BlobStore, createBlobStore } from './blobs.js';
 import { closeDatabase, openDatabase } from './db/database.js';
+import { SerialWriter } from './db/writer.js';
 import { commitVersion } from './files.js';
 import { pruneVersions, sweepOrphanBlobs } from './retention.js';
 
@@ -14,6 +15,7 @@ const dayMs = 24 * 60 * 60 * 1000;
 let directory: string;
 let db: DatabaseSync;
 let blobs: BlobStore;
+let writer: SerialWriter;
 
 function chunkAddress(index: number): string {
 	return index.toString(16).padStart(64, '0');
@@ -38,6 +40,7 @@ beforeEach(async () => {
 	directory = await mkdtemp(join(tmpdir(), 'sync-retention-'));
 	db = openDatabase(join(directory, 'sync.db'));
 	blobs = createBlobStore(join(directory, 'blobs'));
+	writer = new SerialWriter();
 	db.prepare(
 		'INSERT INTO vault (id, name, owner, kdf_salt, created_at) VALUES (?, ?, ?, ?, ?)',
 	).run('v1', 'personal', 'alice', Buffer.alloc(16), Date.now());
@@ -131,19 +134,19 @@ describe('pruneVersions', () => {
 describe('sweepOrphanBlobs', () => {
 	test('leaves referenced blobs alone', async () => {
 		await buildChain(1);
-		expect(await sweepOrphanBlobs(db, blobs, 'v1', 0)).toBe(0);
+		expect(await sweepOrphanBlobs({ db, writer, blobs, vaultId: 'v1', graceMs: 0 })).toBe(0);
 		await expect(blobs.has('v1', chunkAddress(0))).resolves.toBe(true);
 	});
 
 	test('reclaims an unreferenced blob past the grace period', async () => {
 		await knownChunk(chunkAddress(9));
-		expect(await sweepOrphanBlobs(db, blobs, 'v1', 0)).toBe(1);
+		expect(await sweepOrphanBlobs({ db, writer, blobs, vaultId: 'v1', graceMs: 0 })).toBe(1);
 		await expect(blobs.has('v1', chunkAddress(9))).resolves.toBe(false);
 	});
 
 	test('removes the blob_ref row alongside the blob', async () => {
 		await knownChunk(chunkAddress(9));
-		await sweepOrphanBlobs(db, blobs, 'v1', 0);
+		await sweepOrphanBlobs({ db, writer, blobs, vaultId: 'v1', graceMs: 0 });
 		expect(
 			db
 				.prepare('SELECT 1 FROM blob_ref WHERE vault_id = ? AND addr = ?')
@@ -151,11 +154,42 @@ describe('sweepOrphanBlobs', () => {
 		).toBeUndefined();
 	});
 
+	test('spares a blob a commit claims while the sweep is deciding', async () => {
+		const address = chunkAddress(9);
+		await knownChunk(address);
+
+		const racing: BlobStore = {
+			...blobs,
+			async stat(vaultId, addr) {
+				const found = await blobs.stat(vaultId, addr);
+				const outcome = commitVersion(db, {
+					vaultId: 'v1',
+					fileId,
+					parentVersion: undefined,
+					metaBlob: 'bWV0YQ==',
+					chunks: [address],
+					size: 1,
+					deviceId: 'device-1',
+				});
+				expect(outcome.status).toBe('committed');
+				return found;
+			},
+		};
+
+		expect(await sweepOrphanBlobs({ db, writer, blobs: racing, vaultId: 'v1', graceMs: 0 })).toBe(
+			0,
+		);
+		await expect(blobs.has('v1', address)).resolves.toBe(true);
+		expect(
+			db.prepare('SELECT 1 FROM blob_ref WHERE vault_id = ? AND addr = ?').get('v1', address),
+		).toBeDefined();
+	});
+
 	// An upload sits at refcount 0 until its commit lands; reclaiming it mid-flight
 	// would corrupt the version being written.
 	test('spares a freshly uploaded blob still inside the grace period', async () => {
 		await knownChunk(chunkAddress(9));
-		expect(await sweepOrphanBlobs(db, blobs, 'v1', 60_000)).toBe(0);
+		expect(await sweepOrphanBlobs({ db, writer, blobs, vaultId: 'v1', graceMs: 60_000 })).toBe(0);
 		await expect(blobs.has('v1', chunkAddress(9))).resolves.toBe(true);
 	});
 });

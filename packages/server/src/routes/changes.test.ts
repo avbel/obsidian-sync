@@ -154,6 +154,36 @@ describe('GET changes', () => {
 		expect(response.statusCode).toBe(404);
 	});
 
+	test('advances the cursor only to the last row a truncated page delivered', async () => {
+		const seqs = [0, 1, 2, 3, 4].map((index) => addChange(`f${index}`));
+		const first = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/changes?since=0&wait=0&limit=2`,
+			headers: authorised(aliceToken),
+		});
+		expect(first.json().seq).toBe(seqs[1]);
+
+		const second = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/changes?since=${first.json().seq}&wait=0&limit=2`,
+			headers: authorised(aliceToken),
+		});
+		expect(second.json().changes.map((change: { fileId: string }) => change.fileId)).toEqual([
+			'f2',
+			'f3',
+		]);
+	});
+
+	test('never moves a caught-up cursor backwards', async () => {
+		const seq = addChange('f1');
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/changes?since=${seq}&wait=0`,
+			headers: authorised(aliceToken),
+		});
+		expect(response.json().seq).toBe(seq);
+	});
+
 	test('flags a truncated page', async () => {
 		for (let index = 0; index < 5; index += 1) {
 			addChange(`f${index}`);

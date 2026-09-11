@@ -1,4 +1,9 @@
-import type { VaultAdapter, VaultFile } from '../engine/vault.js';
+import {
+	StaleWriteError,
+	type VaultAdapter,
+	type VaultFile,
+	type WriteOptions,
+} from '../engine/vault.js';
 import type { StateStorage } from '../state/storage.js';
 
 export class MemoryStorage implements StateStorage {
@@ -18,8 +23,18 @@ function encode(text: string): Uint8Array {
 	return new TextEncoder().encode(text);
 }
 
+function same(left: Uint8Array, right: Uint8Array): boolean {
+	return left.length === right.length && left.every((byte, index) => byte === right[index]);
+}
+
 export class MemoryVault implements VaultAdapter {
 	readonly #files = new Map<string, { data: Uint8Array; mtime: number; ctime: number }>();
+	#race: { path: string; text: string } | undefined;
+
+	/** Rewrites `path` the next time it is read, standing in for a keystroke landing mid-apply. */
+	raceOnce(path: string, text: string): void {
+		this.#race = { path, text };
+	}
 
 	putText(path: string, text: string): void {
 		const now = Date.now();
@@ -50,12 +65,21 @@ export class MemoryVault implements VaultAdapter {
 		if (file === undefined) {
 			throw new Error(`no such file: ${path}`);
 		}
+		if (this.#race?.path === path) {
+			const { text } = this.#race;
+			this.#race = undefined;
+			this.putText(path, text);
+		}
 		return file.data;
 	}
 
-	async write(path: string, data: Uint8Array): Promise<void> {
+	async write(path: string, data: Uint8Array, options?: WriteOptions): Promise<void> {
 		const now = Date.now();
 		const existing = this.#files.get(path);
+		const expected = options?.expected;
+		if (expected !== undefined && (existing === undefined || !same(existing.data, expected))) {
+			throw new StaleWriteError(path);
+		}
 		this.#files.set(path, { data, mtime: now, ctime: existing?.ctime ?? now });
 	}
 

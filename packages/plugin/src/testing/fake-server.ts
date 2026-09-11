@@ -126,7 +126,7 @@ export class FakeServer implements Requester {
 		const page = after.slice(0, limit);
 		return this.json(200, {
 			changes: page,
-			seq: this.seq,
+			seq: page.at(-1)?.seq ?? Math.max(since, this.seq),
 			hasMore: after.length > limit,
 		});
 	}

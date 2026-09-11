@@ -61,7 +61,7 @@ interface Hunk {
 	lines: string[];
 }
 
-function hunks(a: string[], b: string[], ops: DiffOp[]): Hunk[] {
+function hunks(b: string[], ops: DiffOp[]): Hunk[] {
 	const result: Hunk[] = [];
 	let ai = 0;
 	let bi = 0;
@@ -109,8 +109,8 @@ export type MergeResult =
  */
 export function merge3(baseText: string, localText: string, remoteText: string): MergeResult {
 	const base = splitLines(baseText);
-	const localHunks = hunks(base, splitLines(localText), lcsOps(base, splitLines(localText)));
-	const remoteHunks = hunks(base, splitLines(remoteText), lcsOps(base, splitLines(remoteText)));
+	const localHunks = hunks(splitLines(localText), lcsOps(base, splitLines(localText)));
+	const remoteHunks = hunks(splitLines(remoteText), lcsOps(base, splitLines(remoteText)));
 
 	// Group hunks that share base lines; independent hunks never conflict.
 	type Cluster = { local: Hunk[]; remote: Hunk[] };

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { BlobStore } from './blobs.js';
+import type { SerialWriter } from './db/writer.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -54,30 +55,48 @@ export function pruneVersions(
 	}
 }
 
-export async function sweepOrphanBlobs(
-	db: DatabaseSync,
-	blobs: BlobStore,
-	vaultId: string,
-	graceMs: number,
-): Promise<number> {
+export interface SweepOptions {
+	db: DatabaseSync;
+	writer: SerialWriter;
+	blobs: BlobStore;
+	vaultId: string;
+	graceMs: number;
+}
+
+export async function sweepOrphanBlobs(options: SweepOptions): Promise<number> {
+	const { db, writer, blobs, vaultId, graceMs } = options;
 	const orphans = db
 		.prepare('SELECT addr FROM blob_ref WHERE vault_id = ? AND refcount <= 0')
 		.all(vaultId) as { addr: string }[];
 
 	const youngerThan = Date.now() - graceMs;
-	const forget = db.prepare('DELETE FROM blob_ref WHERE vault_id = ? AND addr = ?');
 	let reclaimed = 0;
 
 	for (const { addr } of orphans) {
-		const writtenAt = await blobs.writtenAt(vaultId, addr);
-		if (writtenAt !== undefined && writtenAt > youngerThan) {
+		const found = await blobs.stat(vaultId, addr);
+		if (found !== undefined && found.writtenAt > youngerThan) {
 			continue;
 		}
 
-		// Blob first, row second — the same ordering as an upload, for the same
-		// reason: a row without a blob is corruption, a blob without a row is litter.
+		// Row first, blob second — the reverse of an upload. A commit racing the sweep
+		// either bumps the refcount (releasing nothing) or loses its blob_ref and is
+		// rejected as missing_chunks, which the client recovers by re-uploading.
+		const released = await writer.run(() => {
+			const row = db
+				.prepare('SELECT refcount FROM blob_ref WHERE vault_id = ? AND addr = ?')
+				.get(vaultId, addr) as { refcount: number } | undefined;
+			if (row === undefined || row.refcount > 0) {
+				return false;
+			}
+			db.prepare('DELETE FROM blob_ref WHERE vault_id = ? AND addr = ?').run(vaultId, addr);
+			return true;
+		});
+
+		if (!released) {
+			continue;
+		}
+
 		await blobs.remove(vaultId, addr);
-		forget.run(vaultId, addr);
 		reclaimed += 1;
 	}
 

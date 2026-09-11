@@ -1,9 +1,10 @@
-import type { ApiClient } from './client.js';
+import { type ApiClient, UnauthorizedError } from './client.js';
 
 /** A nudge source signals "new changes may exist"; it carries no file data (§2.3, §7.3). */
 export interface NudgeSource {
 	readonly kind: 'longpoll' | 'websocket' | 'interval';
-	start(onNudge: () => void): void;
+	/** The callback is awaited where the source can, so slow syncs never stack up. */
+	start(onNudge: () => void | Promise<void>): void;
 	stop(): void;
 }
 
@@ -19,7 +20,13 @@ export interface LongPollOptions {
 	/** Seconds to hold each request; the caller caps this below the platform ceiling (§R1). */
 	waitSeconds: number;
 	getCursor(): number;
+	/** Invoked once when the credentials are rejected; the loop then stays stopped (§9). */
+	onUnauthorized?: (() => void) | undefined;
 }
+
+const idleBackoffStartMs = 1000;
+const idleBackoffCeilingMs = 30_000;
+const promptReturnMs = 1000;
 
 /**
  * Long-poll holds `GET /changes?wait=` open; whenever it settles (a change arrived
@@ -36,10 +43,18 @@ export function createLongPollSource(options: LongPollOptions): NudgeSource {
 		start(onNudge) {
 			active = true;
 			const loop = async (): Promise<void> => {
+				let backoffMs = 0;
 				while (active) {
+					const cursorBefore = options.getCursor();
+					const startedAt = Date.now();
 					try {
-						await options.client.changes(options.vaultId, options.getCursor(), options.waitSeconds);
-					} catch {
+						await options.client.changes(options.vaultId, cursorBefore, options.waitSeconds);
+					} catch (error) {
+						if (error instanceof UnauthorizedError) {
+							active = false;
+							options.onUnauthorized?.();
+							return;
+						}
 						if (!active) {
 							return;
 						}
@@ -48,13 +63,24 @@ export function createLongPollSource(options: LongPollOptions): NudgeSource {
 					if (!active) {
 						return;
 					}
-					onNudge();
+					// Awaited, so the next poll cannot start while a sync is still running.
+					await onNudge();
+					if (!active) {
+						return;
+					}
+					// A poll that returned at once and left the cursor where it was has
+					// changes the engine could not consume; re-polling immediately would
+					// spin on them at full speed.
+					if (options.getCursor() === cursorBefore && Date.now() - startedAt < promptReturnMs) {
+						backoffMs =
+							backoffMs === 0 ? idleBackoffStartMs : Math.min(backoffMs * 2, idleBackoffCeilingMs);
+						await delay(backoffMs);
+					} else {
+						backoffMs = 0;
+					}
 				}
 			};
-			const start = async (): Promise<void> => {
-				await loop();
-			};
-			start().catch(() => {
+			loop().catch(() => {
 				active = false;
 			});
 		},
