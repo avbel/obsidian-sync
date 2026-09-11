@@ -14,7 +14,16 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 26
-          cache: pnpm
+
+      # Explicit rather than setup-node's `cache: pnpm`, which has no restore-keys
+      # and so re-downloads the whole store whenever the lockfile changes.
+      - id: store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm build
@@ -31,3 +40,5 @@ jobs:
           file: packages/server/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -17,7 +17,16 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 26
-          cache: pnpm
+
+      # Explicit rather than setup-node's `cache: pnpm`, which has no restore-keys
+      # and so re-downloads the whole store whenever the lockfile changes.
+      - id: store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
 
       # The image carries no toolchain, so the production tree is assembled here
       # and only copied in. pnpm deploy resolves the workspace link to
@@ -71,7 +80,16 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 26
-          cache: pnpm
+
+      # Explicit rather than setup-node's `cache: pnpm`, which has no restore-keys
+      # and so re-downloads the whole store whenever the lockfile changes.
+      - id: store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @obsidian-sync/protocol build
       - run: pnpm --filter @obsidian-sync/plugin build
