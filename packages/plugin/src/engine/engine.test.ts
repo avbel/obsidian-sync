@@ -2,74 +2,20 @@ import { kdfSaltBytes } from '@obsidian-sync/protocol';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { computeFileId } from '../crypto/identity.js';
 import { derivePurposeKeys, type PurposeKeys } from '../crypto/keys.js';
-import { BaseCache } from '../state/base-cache.js';
-import { FileIndex } from '../state/file-index.js';
-import { LocalState, type LocalStateStore } from '../state/local-state.js';
+import { type Device, fullSelective, makeDevice } from '../testing/devices.js';
 import { FakeServer } from '../testing/fake-server.js';
-import { MemoryStorage, MemoryVault } from '../testing/memory-fixtures.js';
 import { ApiClient } from '../transport/client.js';
-import type { SelectiveSyncOptions } from './selective.js';
-import type { SyncEngineDeps } from './sync.js';
 import { type ConflictRecord, SyncEngine } from './sync.js';
 
 const salt16 = Buffer.alloc(kdfSaltBytes, 7).toString('base64');
-const full: SelectiveSyncOptions = {
-	categories: {
-		markdown: true,
-		attachments: true,
-		config: true,
-		themes: true,
-		snippets: true,
-		pluginSettings: true,
-	},
-	excludedFolders: [],
-	maxFileBytes: 100 * 1024 * 1024,
-};
-
-function memoryLocalState(): { local: LocalState; store: Map<string, string> } {
-	const data = new Map<string, string>();
-	const store: LocalStateStore = {
-		get: (key) => data.get(key) ?? null,
-		set: (key, value) => {
-			data.set(key, value);
-		},
-	};
-	return { local: new LocalState(store), store: data };
-}
-
-interface Device {
-	engine: SyncEngine;
-	vault: MemoryVault;
-	index: FileIndex;
-	conflicts: ConflictRecord[];
-	deps: SyncEngineDeps;
-}
 
 let server: FakeServer;
 let keys: PurposeKeys;
 let client: ApiClient;
 
-async function makeDevice(deviceId: string): Promise<Device> {
-	const vault = new MemoryVault();
-	const index = new FileIndex(new MemoryStorage());
-	const bases = new BaseCache(new MemoryStorage());
-	const { local } = memoryLocalState();
-	await index.load();
-	await bases.load();
-	const conflicts: ConflictRecord[] = [];
-	const deps: SyncEngineDeps = {
-		vaultId: server.vaultId,
-		client,
-		keys,
-		vault,
-		index,
-		bases,
-		local,
-		selective: full,
-		deviceId,
-		onConflict: (conflict) => conflicts.push(conflict),
-	};
-	return { engine: new SyncEngine(deps), vault, index, conflicts, deps };
+/** Reads the fixtures at call time, so each test gets the instances `beforeEach` built. */
+async function device(deviceId: string): Promise<Device> {
+	return makeDevice({ server, keys, client }, deviceId);
 }
 
 beforeEach(async () => {
@@ -80,8 +26,8 @@ beforeEach(async () => {
 
 describe('two clients on one vault', () => {
 	test('a push from one device reaches the other after a pull', async () => {
-		const laptop = await makeDevice('laptop');
-		const phone = await makeDevice('phone');
+		const laptop = await device('laptop');
+		const phone = await device('phone');
 
 		laptop.vault.putText('notes/idea.md', 'hello from the laptop\n');
 		await laptop.engine.pushAll();
@@ -91,11 +37,11 @@ describe('two clients on one vault', () => {
 	});
 
 	test('an edited line reaches the other device intact', async () => {
-		const laptop = await makeDevice('laptop');
+		const laptop = await device('laptop');
 		laptop.vault.putText('a.md', 'one\ntwo\nthree\n');
 		await laptop.engine.pushAll();
 
-		const phone = await makeDevice('phone');
+		const phone = await device('phone');
 		await phone.engine.pullAll();
 		laptop.vault.putText('a.md', 'one\nTWO\nthree\n');
 		await laptop.engine.pushAll();
@@ -105,11 +51,11 @@ describe('two clients on one vault', () => {
 	});
 
 	test('a remote delete is trashed locally', async () => {
-		const laptop = await makeDevice('laptop');
+		const laptop = await device('laptop');
 		laptop.vault.putText('gone.md', 'bye\n');
 		await laptop.engine.pushAll();
 
-		const phone = await makeDevice('phone');
+		const phone = await device('phone');
 		await phone.engine.pullAll();
 		expect(phone.vault.getText('gone.md')).toBe('bye\n');
 
@@ -124,12 +70,12 @@ describe('two clients on one vault', () => {
 	});
 
 	test('disjoint edits on both devices merge on the late device', async () => {
-		const seed = await makeDevice('seed');
+		const seed = await device('seed');
 		seed.vault.putText('doc.md', 'l1\nl2\nl3\nl4\n');
 		await seed.engine.pushAll();
 
-		const a = await makeDevice('a');
-		const b = await makeDevice('b');
+		const a = await device('a');
+		const b = await device('b');
 		await a.engine.pullAll();
 		await b.engine.pullAll();
 
@@ -138,18 +84,18 @@ describe('two clients on one vault', () => {
 		await a.engine.pushAll();
 		await b.engine.pushAll();
 
-		const late = await makeDevice('late');
+		const late = await device('late');
 		await late.engine.pullAll();
 		expect(late.vault.getText('doc.md')).toBe('l1\nA-EDIT\nl3\nB-EDIT\n');
 	});
 
 	test('a true conflict produces a conflict copy and keeps the winning version', async () => {
-		const seed = await makeDevice('seed');
+		const seed = await device('seed');
 		seed.vault.putText('c.md', 'shared\ncontext\nbase\n');
 		await seed.engine.pushAll();
 
-		const a = await makeDevice('a');
-		const b = await makeDevice('b');
+		const a = await device('a');
+		const b = await device('b');
 		await a.engine.pullAll();
 		await b.engine.pullAll();
 
@@ -171,7 +117,7 @@ describe('two clients on one vault', () => {
 	});
 
 	test('stable content uploads no new blobs on a no-op re-push', async () => {
-		const a = await makeDevice('a');
+		const a = await device('a');
 		a.vault.putText('stable.md', 'same bytes\n');
 		await a.engine.pushAll();
 		const fileId = await computeFileId(keys.nameMacKey, 'stable.md');
@@ -185,12 +131,12 @@ describe('two clients on one vault', () => {
 
 describe('regressions', () => {
 	test('a clean merge made during a pull is uploaded by the next push', async () => {
-		const seed = await makeDevice('seed');
+		const seed = await device('seed');
 		seed.vault.putText('doc.md', 'l1\nl2\nl3\nl4\n');
 		await seed.engine.pushAll();
 
-		const a = await makeDevice('a');
-		const b = await makeDevice('b');
+		const a = await device('a');
+		const b = await device('b');
 		await a.engine.pullAll();
 		await b.engine.pullAll();
 
@@ -202,17 +148,17 @@ describe('regressions', () => {
 		expect(b.vault.getText('doc.md')).toBe('l1\nA-EDIT\nl3\nB-EDIT\n');
 		await b.engine.pushAll();
 
-		const late = await makeDevice('late');
+		const late = await device('late');
 		await late.engine.pullAll();
 		expect(late.vault.getText('doc.md')).toBe('l1\nA-EDIT\nl3\nB-EDIT\n');
 	});
 
 	test('a remote delete keeps an unsynced local edit and republishes it', async () => {
-		const laptop = await makeDevice('laptop');
+		const laptop = await device('laptop');
 		laptop.vault.putText('note.md', 'original\n');
 		await laptop.engine.pushAll();
 
-		const phone = await makeDevice('phone');
+		const phone = await device('phone');
 		await phone.engine.pullAll();
 
 		phone.vault.putText('note.md', 'edited on the phone\n');
@@ -228,11 +174,11 @@ describe('regressions', () => {
 	});
 
 	test('a delete lost before it was queued is recovered from the index', async () => {
-		const laptop = await makeDevice('laptop');
+		const laptop = await device('laptop');
 		laptop.vault.putText('gone.md', 'bye\n');
 		await laptop.engine.pushAll();
 
-		const phone = await makeDevice('phone');
+		const phone = await device('phone');
 		await phone.engine.pullAll();
 
 		await laptop.vault.remove('gone.md');
@@ -245,7 +191,7 @@ describe('regressions', () => {
 	// Obsidian populates its file cache after the plugin loads, so a sync racing
 	// startup sees a full index and an empty vault. That must never read as a delete.
 	test('a restart whose vault cannot see its own files yet deletes nothing remotely', async () => {
-		const laptop = await makeDevice('laptop');
+		const laptop = await device('laptop');
 		laptop.vault.putText('a.md', 'one\n');
 		laptop.vault.putText('b.md', 'two\n');
 		await laptop.engine.pushAll();
@@ -263,7 +209,7 @@ describe('regressions', () => {
 	});
 
 	test('a genuine delete still propagates while other files remain', async () => {
-		const laptop = await makeDevice('laptop');
+		const laptop = await device('laptop');
 		laptop.vault.putText('keep.md', 'stay\n');
 		laptop.vault.putText('drop.md', 'go\n');
 		await laptop.engine.pushAll();
@@ -278,7 +224,7 @@ describe('regressions', () => {
 	// If a pull restores the file before that queued delete is pushed, pushing it
 	// deletes live content, and two devices ping-pong the same file forever.
 	test('a queued delete for a file that has come back is dropped', async () => {
-		const laptop = await makeDevice('laptop');
+		const laptop = await device('laptop');
 		laptop.vault.putText('note.md', 'alive\n');
 		await laptop.engine.pushAll();
 
@@ -298,11 +244,11 @@ describe('regressions', () => {
 	});
 
 	test('identical content never produces a conflict copy, even with no ancestor', async () => {
-		const laptop = await makeDevice('laptop');
+		const laptop = await device('laptop');
 		laptop.vault.putText('same.md', 'identical bytes\n');
 		await laptop.engine.pushAll();
 
-		const phone = await makeDevice('phone');
+		const phone = await device('phone');
 		phone.vault.putText('same.md', 'identical bytes\n');
 		await phone.engine.pullAll();
 
@@ -312,28 +258,28 @@ describe('regressions', () => {
 	});
 
 	test('a selective-sync change applies to a running engine', async () => {
-		const device = await makeDevice('device');
-		device.vault.putText('note.md', 'text\n');
-		device.vault.putText('attachment.bin', 'bytes\n');
-		await device.engine.pushAll();
-		expect(device.index.get('attachment.bin')).toBeDefined();
+		const phone = await device('phone');
+		phone.vault.putText('note.md', 'text\n');
+		phone.vault.putText('attachment.bin', 'bytes\n');
+		await phone.engine.pushAll();
+		expect(phone.index.get('attachment.bin')).toBeDefined();
 
-		device.engine.updateSelective({
-			...full,
-			categories: { ...full.categories, attachments: false },
+		phone.engine.updateSelective({
+			...fullSelective,
+			categories: { ...fullSelective.categories, attachments: false },
 		});
-		device.vault.putText('second.bin', 'more bytes\n');
-		await device.engine.pushAll();
+		phone.vault.putText('second.bin', 'more bytes\n');
+		await phone.engine.pushAll();
 
-		expect(device.index.get('second.bin')).toBeUndefined();
+		expect(phone.index.get('second.bin')).toBeUndefined();
 	});
 
 	test('a keystroke landing mid-apply survives instead of being overwritten', async () => {
-		const seed = await makeDevice('seed');
+		const seed = await device('seed');
 		seed.vault.putText('race.md', 'line one\nline two\n');
 		await seed.engine.pushAll();
 
-		const phone = await makeDevice('phone');
+		const phone = await device('phone');
 		await phone.engine.pullAll();
 
 		seed.vault.putText('race.md', 'line one EDITED\nline two\n');
@@ -353,12 +299,12 @@ describe('conflict resolution', () => {
 		b: Device;
 		record: ConflictRecord;
 	}> {
-		const seed = await makeDevice('seed');
+		const seed = await device('seed');
 		seed.vault.putText('c.md', 'shared\nbase\n');
 		await seed.engine.pushAll();
 
-		const a = await makeDevice('a');
-		const b = await makeDevice('b');
+		const a = await device('a');
+		const b = await device('b');
 		await a.engine.pullAll();
 		await b.engine.pullAll();
 
