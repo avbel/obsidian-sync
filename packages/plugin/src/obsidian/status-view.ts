@@ -1,21 +1,8 @@
 import { ItemView, setIcon, type WorkspaceLeaf } from 'obsidian';
-import type { EngineStatus } from '../engine/sync.js';
 import type SyncPlugin from '../main.js';
+import { relativeTime, statusIcon, statusIconClass, statusLabel } from './status-display.js';
 
 export const syncStatusViewType = 'obsidian-sync-status';
-
-export function statusLabel(status: EngineStatus): string {
-	switch (status) {
-		case 'idle':
-			return 'Idle';
-		case 'syncing':
-			return 'Syncing…';
-		case 'conflict':
-			return 'Conflict';
-		case 'error':
-			return 'Error';
-	}
-}
 
 /**
  * Right-sidebar sync status. On mobile this is the primary indicator because there
@@ -46,10 +33,12 @@ export class SyncStatusView extends ItemView {
 		root.empty();
 		root.addClass('obsidian-sync-status');
 
+		const status = this.#plugin.lastStatus;
 		const header = root.createDiv({ cls: 'obsidian-sync-status__header' });
-		const icon = header.createSpan({ cls: 'obsidian-sync-status__icon' });
-		setIcon(icon, 'refresh-cw');
-		header.createSpan({ text: statusLabel(this.#plugin.lastStatus) });
+		const icon = header.createSpan({ cls: statusIconClass });
+		icon.dataset.syncStatus = status;
+		setIcon(icon, statusIcon(status));
+		header.createSpan({ text: statusLabel(status) });
 
 		const lastSync = root.createDiv({ cls: 'obsidian-sync-status__last' });
 		const at = this.#plugin.lastSyncAt;
@@ -76,15 +65,4 @@ export class SyncStatusView extends ItemView {
 	refresh(): void {
 		void this.onOpen();
 	}
-}
-
-function relativeTime(at: number): string {
-	const seconds = Math.round((Date.now() - at) / 1000);
-	if (seconds < 60) {
-		return `${seconds}s ago`;
-	}
-	if (seconds < 3600) {
-		return `${Math.round(seconds / 60)}m ago`;
-	}
-	return `${Math.round(seconds / 3600)}h ago`;
 }

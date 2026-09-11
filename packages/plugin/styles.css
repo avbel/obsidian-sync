@@ -11,10 +11,6 @@
 	margin-bottom: 8px;
 }
 
-.obsidian-sync-status__icon {
-	display: inline-flex;
-}
-
 .obsidian-sync-status__last {
 	color: var(--text-muted);
 	margin-bottom: 12px;
@@ -33,6 +29,37 @@
 	display: flex;
 	gap: 8px;
 	flex-wrap: wrap;
+}
+
+.obsidian-sync-icon {
+	display: inline-flex;
+	align-items: center;
+	--icon-size: var(--icon-s);
+}
+
+.obsidian-sync-icon[data-sync-status="syncing"] .svg-icon {
+	color: var(--text-accent);
+	animation: obsidian-sync-spin 1.2s linear infinite;
+}
+
+.obsidian-sync-icon[data-sync-status="conflict"] .svg-icon {
+	color: var(--text-warning);
+}
+
+.obsidian-sync-icon[data-sync-status="error"] .svg-icon {
+	color: var(--text-error);
+}
+
+@keyframes obsidian-sync-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.obsidian-sync-icon[data-sync-status="syncing"] .svg-icon {
+		animation: none;
+	}
 }
 
 /*

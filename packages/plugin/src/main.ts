@@ -5,12 +5,15 @@ import {
 	requestUrl,
 	requireApiVersion,
 	type SecretStorage,
+	setIcon,
+	setTooltip,
 } from 'obsidian';
 import { derivePurposeKeys, type PurposeKeys } from './crypto/keys.js';
 import { pluginId } from './engine/selective.js';
 import { type ConflictRecord, type EngineStatus, SyncEngine } from './engine/sync.js';
 import { SyncSettingTab } from './obsidian/settings-tab.js';
 import { createLocalStateStore, createStateStorage } from './obsidian/state-store.js';
+import { statusIcon, statusIconClass, statusTooltip } from './obsidian/status-display.js';
 import { SyncStatusView, syncStatusViewType } from './obsidian/status-view.js';
 import { createVaultAdapter } from './obsidian/vault-adapter.js';
 import { DebouncedWatcher } from './obsidian/watcher.js';
@@ -70,6 +73,7 @@ export default class SyncPlugin extends Plugin {
 
 		if (!Platform.isPhone) {
 			this.#statusBarItem = this.addStatusBarItem();
+			this.registerDomEvent(this.#statusBarItem, 'mouseenter', () => this.#updateStatusTooltip());
 			this.#renderStatusBar();
 		}
 
@@ -389,10 +393,24 @@ export default class SyncPlugin extends Plugin {
 	}
 
 	#renderStatusBar(): void {
-		if (this.#statusBarItem === null) {
+		const item = this.#statusBarItem;
+		if (item === null) {
 			return;
 		}
-		this.#statusBarItem.setText(`Sync: ${this.lastStatus}`);
+		item.empty();
+		item.addClass(statusIconClass);
+		item.dataset.syncStatus = this.lastStatus;
+		setIcon(item, statusIcon(this.lastStatus));
+		this.#updateStatusTooltip();
+	}
+
+	#updateStatusTooltip(): void {
+		const item = this.#statusBarItem;
+		if (item === null) {
+			return;
+		}
+		// "last synced 2m ago" ages between renders, so recompute it as the pointer arrives.
+		setTooltip(item, statusTooltip(this.lastStatus, this.lastSyncAt, this.pendingConflicts.length));
 	}
 
 	#refreshStatusView(): void {
