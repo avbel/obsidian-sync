@@ -41,8 +41,8 @@ const ignoredFileNames = new Set([
 	'.ds_store',
 	'.localized',
 	'desktop.ini',
-	'thumbs.db',
 	'ehthumbs.db',
+	'ehthumbs_vista.db',
 	'.directory',
 	'.apdisk',
 	'.volumeicon.icns',
@@ -53,10 +53,11 @@ const ignoredFilePatterns = [
 	/^\._/,
 	/^\.#/,
 	/^~\$/,
-	/^\.~lock\./,
 	/^\.nfs[0-9a-f]/,
+	/^thumbs\.db/,
+	/\.~/,
 	/~$/,
-	/\.(tmp|temp|swp|swo|crdownload|part)$/,
+	/\.(tmp|temp|swp|swo|log|bak|old|crdownload|part|partial)$/,
 ];
 
 /**
@@ -89,11 +90,13 @@ export function isNeverSynced(normalisedPath: string): boolean {
 	}
 
 	const segments = normalisedPath.split('/');
-	const name = segments[segments.length - 1] ?? '';
+	// Lowercased throughout: macOS and Windows are case-insensitive, so THUMBS.DB
+	// and thumbs.db are the same file and both must be caught.
+	const name = (segments[segments.length - 1] ?? '').toLowerCase();
 	if (segments.slice(0, -1).some((segment) => ignoredDirectories.has(segment.toLowerCase()))) {
 		return true;
 	}
-	if (ignoredDirectories.has(name.toLowerCase()) || ignoredFileNames.has(name.toLowerCase())) {
+	if (ignoredDirectories.has(name) || ignoredFileNames.has(name)) {
 		return true;
 	}
 	return ignoredFilePatterns.some((pattern) => pattern.test(name));

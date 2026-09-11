@@ -90,10 +90,23 @@ describe('system and editor debris', () => {
 		expect(isPathIncluded('.git/config', allOn)).toBe(false);
 	});
 
+	test('tilde variants, logs and thumbnail databases never sync', () => {
+		expect(isPathIncluded('notes/report.~doc', allOn)).toBe(false);
+		expect(isPathIncluded('notes/draft.~1~', allOn)).toBe(false);
+		expect(isPathIncluded('notes/.~lock.sheet.ods#', allOn)).toBe(false);
+		expect(isPathIncluded('logs/app.log', allOn)).toBe(false);
+		expect(isPathIncluded('notes/a.md.bak', allOn)).toBe(false);
+		expect(isPathIncluded('Thumbs.db:encryptable', allOn)).toBe(false);
+		expect(isPathIncluded('THUMBS.DB', allOn)).toBe(false);
+		expect(isPathIncluded('notes/ehthumbs_vista.db', allOn)).toBe(false);
+	});
+
 	test('ordinary notes that merely resemble debris still sync', () => {
 		expect(isPathIncluded('notes/a~b.md', allOn)).toBe(true);
 		expect(isPathIncluded('notes/desktop-setup.md', allOn)).toBe(true);
 		expect(isPathIncluded('trash-talk/a.md', allOn)).toBe(true);
 		expect(isPathIncluded('notes/template.md', allOn)).toBe(true);
+		expect(isPathIncluded('notes/changelog.md', allOn)).toBe(true);
+		expect(isPathIncluded('notes/~tilde-start.md', allOn)).toBe(true);
 	});
 });
