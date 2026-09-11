@@ -137,6 +137,17 @@ export class SyncSettingTab extends PluginSettingTab {
 			}),
 		);
 
+		new Setting(containerEl)
+			.setName("Hide Obsidian's own sync icon")
+			.setDesc(
+				'The core Sync plugin shows a crossed-out red icon in the status bar when it has no subscription. This hides it.',
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(settings.hideCoreSyncIndicator).onChange((value) => {
+					void update({ hideCoreSyncIndicator: value });
+				}),
+			);
+
 		new Setting(containerEl).setName('Selective sync').setHeading();
 		for (const [category, label] of Object.entries(categoryLabels)) {
 			new Setting(containerEl).setName(label).addToggle((toggle) =>

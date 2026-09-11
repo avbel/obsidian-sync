@@ -12,6 +12,7 @@ export interface PluginSettings {
 	longPollWaitSeconds: number;
 	debounceMs: number;
 	syncOnStartup: boolean;
+	hideCoreSyncIndicator: boolean;
 	enabled: boolean;
 	chunkBytes: number;
 	categories: Record<SyncCategory, boolean>;
@@ -29,6 +30,7 @@ export const defaultSettings: PluginSettings = {
 	longPollWaitSeconds: 25,
 	debounceMs: 2000,
 	syncOnStartup: true,
+	hideCoreSyncIndicator: false,
 	enabled: false,
 	chunkBytes: defaultChunkBytes,
 	categories: {

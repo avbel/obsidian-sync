@@ -36,6 +36,7 @@ import {
 } from './transport/nudge.js';
 
 const minimumApiVersion = '1.13.2';
+const hideCoreSyncClass = 'obsidian-sync-hide-core-sync';
 
 export default class SyncPlugin extends Plugin {
 	settings: PluginSettings = { ...defaultSettings };
@@ -71,6 +72,7 @@ export default class SyncPlugin extends Plugin {
 			this.#renderStatusBar();
 		}
 
+		this.#applyCoreSyncVisibility();
 		this.registerDomElements();
 		if (this.settings.enabled) {
 			// Obsidian populates its file cache after layout. Starting the engine before
@@ -83,6 +85,7 @@ export default class SyncPlugin extends Plugin {
 	}
 
 	override async onunload(): Promise<void> {
+		document.body.classList.remove(hideCoreSyncClass);
 		this.#stopEngine();
 		for (const ref of this.#eventRefs) {
 			this.app.vault.offref(ref);
@@ -318,8 +321,13 @@ export default class SyncPlugin extends Plugin {
 		}
 	}
 
+	#applyCoreSyncVisibility(): void {
+		document.body.classList.toggle(hideCoreSyncClass, this.settings.hideCoreSyncIndicator);
+	}
+
 	/** Pushes changed settings into a running engine so they apply without a restart. */
 	applyLiveSettings(): void {
+		this.#applyCoreSyncVisibility();
 		this.#engine?.updateSelective(toSelectiveSyncOptions(this.settings));
 		this.#watcher?.setDebounce(this.settings.debounceMs);
 	}

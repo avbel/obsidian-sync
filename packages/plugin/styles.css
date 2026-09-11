@@ -34,3 +34,14 @@
 	gap: 8px;
 	flex-wrap: wrap;
 }
+
+/*
+ * Obsidian's own core Sync plugin keeps a permanently crossed-out red glyph in the
+ * status bar when there is no subscription. Class names verified against Obsidian
+ * 1.13.7: core plugins are given `plugin-<id>`, and the glyph is `sync-status-icon`.
+ * This plugin's own item is `plugin-obsidian-sync`, a different class token.
+ */
+body.obsidian-sync-hide-core-sync .status-bar-item.plugin-sync,
+body.obsidian-sync-hide-core-sync .status-bar-item:has(.sync-status-icon) {
+	display: none !important;
+}
