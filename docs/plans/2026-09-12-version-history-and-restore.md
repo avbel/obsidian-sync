@@ -123,7 +123,7 @@ packages/plugin/styles.css           MODIFY  modal styles
 **Interfaces:**
 - Produces: `VersionSummary` with `metaBlob: string`; `VersionsResponse` with `hasMore: boolean`.
 
-- [ ] **Step 1: Extend the wire types**
+- [x] **Step 1: Extend the wire types**
 
 In `packages/protocol/src/wire.ts`, replace the existing `VersionSummary` and `VersionsResponse`:
 
@@ -153,7 +153,7 @@ export interface VersionsResponse {
 
 No validator is needed: this is a response shape, and `packages/protocol/src/validate.ts` guards request bodies only.
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `pnpm --filter @obsidian-sync/protocol typecheck`
 Expected: passes. `packages/server/src/routes/files.ts` will now fail to typecheck until Task 2 — that is the intended signal.
@@ -176,7 +176,7 @@ Expected: passes. `packages/server/src/routes/files.ts` will now fail to typeche
   - `interface VersionPage { versions: VersionSummary[]; hasMore: boolean }`
 - Consumes: `versionListDefaultLimit`, `versionListMaxLimit` (new constants, local to `files.ts`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `packages/server/src/files.test.ts`, replacing the existing `describe('listVersions')` block:
 
@@ -258,7 +258,7 @@ describe('listVersions', () => {
 Run: `pnpm test -- files.test`
 Expected: fails — `listVersions` takes three arguments and returns an array.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 In `packages/server/src/files.ts`, replace `listVersions`:
 
@@ -310,7 +310,7 @@ export function listVersions(
 
 Add the import of `VersionSummary` if it is not already present, and keep the existing `FileState` import.
 
-- [ ] **Step 3: Wire the route**
+- [x] **Step 3: Wire the route**
 
 In `packages/server/src/routes/files.ts`, replace the versions handler:
 
@@ -351,7 +351,7 @@ function parseWindow(query: { limit?: string; offset?: string }): VersionWindow 
 
 The `fileIdPattern` guard is new. The route previously accepted any string and returned an empty list, which is harmless but inconsistent with the commit and delete handlers on the same path.
 
-- [ ] **Step 4: Route-level test**
+- [x] **Step 4: Route-level test**
 
 Create `packages/server/src/routes/files.test.ts`, copying the `beforeEach`/`afterEach` harness from `packages/server/src/routes/vaults.test.ts` (temp dir, `buildApp`, two users). Cover:
 
@@ -397,7 +397,7 @@ describe('GET /v1/vaults/:vaultId/files/:fileId/versions', () => {
 });
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `pnpm lint && pnpm --filter @obsidian-sync/server typecheck && pnpm test`
 Expected: all pass.
@@ -413,7 +413,7 @@ Expected: all pass.
 **Interfaces:**
 - Produces: `ApiClient.versions(vaultId, fileId, window?: { limit?: number; offset?: number }): Promise<VersionsResponse>`
 
-- [ ] **Step 1: Client**
+- [x] **Step 1: Client**
 
 Replace `ApiClient.versions`:
 
@@ -437,7 +437,7 @@ Replace `ApiClient.versions`:
 	}
 ```
 
-- [ ] **Step 2: Fake server**
+- [x] **Step 2: Fake server**
 
 `FakeServer` already stores every committed version but serves no route for them. Two changes.
 
@@ -492,7 +492,7 @@ Second, the route. In `request()`, before the `POST`/`DELETE` dispatch:
 	}
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `pnpm --filter @obsidian-sync/plugin typecheck && pnpm test`
 Expected: the existing engine tests still pass; nothing calls the new route yet.
@@ -513,7 +513,7 @@ Spec §6.3.5 wants "originating device". The server holds only a random UUID, an
 **Interfaces:**
 - Produces: `FileMeta.deviceLabel?: string | undefined`; `encodeFile(keys: PurposeKeys, options: EncodeFileOptions)`; `SyncEngine.updateDeviceLabel(label: string)`.
 
-- [ ] **Step 1: Extend `FileMeta`**
+- [x] **Step 1: Extend `FileMeta`**
 
 In `packages/plugin/src/crypto/meta.ts`, add to the `FileMeta` interface:
 
@@ -528,7 +528,7 @@ In `packages/plugin/src/crypto/meta.ts`, add to the `FileMeta` interface:
 
 `| undefined` is required by `exactOptionalPropertyTypes`, because the call site assigns the value unconditionally.
 
-- [ ] **Step 2: Move `encodeFile` to an options object**
+- [x] **Step 2: Move `encodeFile` to an options object**
 
 Five positional parameters was already the ceiling. In `packages/plugin/src/engine/codec.ts`:
 
@@ -576,7 +576,7 @@ export async function encodeFile(
 }
 ```
 
-- [ ] **Step 3: Thread the label through the engine**
+- [x] **Step 3: Thread the label through the engine**
 
 In `packages/plugin/src/engine/sync.ts`:
 
@@ -607,7 +607,7 @@ In `packages/plugin/src/engine/sync.ts`:
 		});
 ```
 
-- [ ] **Step 4: Wire the plugin**
+- [x] **Step 4: Wire the plugin**
 
 In `packages/plugin/src/main.ts`, pass `deviceLabel: this.settings.deviceLabel` into the `SyncEngine` constructor, and add to `applyLiveSettings()`:
 
@@ -617,11 +617,11 @@ In `packages/plugin/src/main.ts`, pass `deviceLabel: this.settings.deviceLabel` 
 
 `detectDeviceName()` already fills `deviceLabel` on first load, so this is never empty in practice; the modal still guards for it.
 
-- [ ] **Step 5: Fix the engine tests**
+- [x] **Step 5: Fix the engine tests**
 
 `packages/plugin/src/engine/engine.test.ts` builds `SyncEngineDeps` literally in `makeDevice`. Add `deviceLabel: deviceId` there — using the device id as the label keeps the two-device assertions readable.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `pnpm --filter @obsidian-sync/plugin typecheck && pnpm test`
 Expected: all existing tests pass. A version committed by the current build now carries a label; older ones do not, which is the case Task 6 covers.
@@ -643,7 +643,7 @@ Three small extractions, all of which exist to stop the history feature growing 
 **Interfaces:**
 - Produces: `isTextPath(path: string): boolean`; `uniqueCopyPath(exists, path, marker): Promise<string>`; `copyStamp(at: number): string`; `type DiffOp`; `interface DiffRow`; `diffLines(beforeText, afterText): DiffRow[]`.
 
-- [ ] **Step 1: `engine/text.ts`**
+- [x] **Step 1: `engine/text.ts`**
 
 Move `textExtensions` and `isTextPath` out of `sync.ts` verbatim:
 
@@ -669,7 +669,7 @@ export function isTextPath(path: string): boolean {
 
 In `sync.ts`, delete the local `textExtensions`, `isTextPath`, `bytesToText` and `textToBytes`, and import `isTextPath` from `./text.js` plus `bytesToText`/`textToBytes` from `../crypto/encoding.js` — which already export byte-identical implementations that `sync.ts` had duplicated.
 
-- [ ] **Step 2: `engine/copy.ts`**
+- [x] **Step 2: `engine/copy.ts`**
 
 `#conflictCopy` in `sync.ts` builds a timestamped, collision-free sidecar path. Restore-as-copy needs exactly the same thing with a different marker.
 
@@ -717,7 +717,7 @@ Rewrite `SyncEngine.#conflictCopy` to use them, preserving today's `(conflict <s
 
 `packages/plugin/src/engine/copy.test.ts` covers: extension preserved, extensionless path, the `2`/`3` suffix ladder when the first two candidates exist, and a path whose folder contains a dot (`docs.v2/note.md` must not have `.v2/note` treated as the extension).
 
-- [ ] **Step 3: Export a line diff from `merge.ts`**
+- [x] **Step 3: Export a line diff from `merge.ts`**
 
 `lcsOps` is already there and already correct; only a walk over its output is missing. Export the op type and add:
 
@@ -760,7 +760,7 @@ export function diffLines(beforeText: string, afterText: string): DiffRow[] {
 
 Tests in `merge.test.ts`: identical input yields all-`equal`; a pure append yields trailing `insert`s; a pure deletion yields `delete`s; a replaced line yields one `delete` and one `insert`; empty-to-nonempty and nonempty-to-empty both terminate.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `pnpm lint && pnpm --filter @obsidian-sync/plugin typecheck && pnpm test`
 Expected: all pass, including the untouched `merge.test.ts` and `engine.test.ts` cases — the extraction must be behaviour-preserving.
@@ -778,7 +778,7 @@ Pure, synchronous, no Obsidian, no network: the modal renders whatever this retu
 **Interfaces:**
 - Produces: `previewMaxLines`, `previewMaxBytes`, `type VersionPreview`, `buildPreview(path, current, version): VersionPreview`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/plugin/src/engine/preview.test.ts`:
 
@@ -831,7 +831,7 @@ describe('buildPreview', () => {
 Run: `pnpm test -- preview.test`
 Expected: fails, module absent.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 `packages/plugin/src/engine/preview.ts`:
 
@@ -916,7 +916,7 @@ export function buildPreview(
 
 The diff direction is deliberate: **current → version**, so `insert` rows are what restoring would add and `delete` rows are what it would remove. The modal labels them that way.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `pnpm test -- preview.test`
 Expected: passes.
@@ -939,7 +939,7 @@ The whole feature's logic, with no `obsidian` import, so it is testable against 
   - `class VersionUnreadableError extends Error`
   - `class VersionHistoryService` with `list`, `read`, `restore`, `restoreAsCopy`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/plugin/src/engine/history.test.ts` — reuse the `makeDevice` harness shape from `engine.test.ts` (FakeServer, `derivePurposeKeys`, `MemoryVault`, `MemoryStorage`):
 
@@ -1106,7 +1106,7 @@ describe('VersionHistoryService', () => {
 Run: `pnpm test -- history.test`
 Expected: fails, module absent.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 `packages/plugin/src/engine/history.ts`:
 
@@ -1300,7 +1300,7 @@ export class VersionHistoryService {
 
 Note the copy marker uses the **version's** `createdAt`, not the current time: `Note (restored 2026-09-04-11-02-19).md` says which version it came from, which is the question the user will ask a week later.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `pnpm lint && pnpm --filter @obsidian-sync/plugin typecheck && pnpm test`
 Expected: all pass.
@@ -1319,7 +1319,7 @@ The view layer. Like `settings-tab.ts` and `status-view.ts` it carries no tests:
 **Interfaces:**
 - Produces: `class VersionHistoryModal extends Modal`; `SyncPlugin.openVersionHistory(path: string): Promise<void>`.
 
-- [ ] **Step 1: The modal**
+- [x] **Step 1: The modal**
 
 `packages/plugin/src/obsidian/version-history-modal.ts`:
 
@@ -1568,7 +1568,7 @@ export class VersionHistoryModal extends Modal {
 }
 ```
 
-- [ ] **Step 2: Wire the plugin**
+- [x] **Step 2: Wire the plugin**
 
 In `packages/plugin/src/main.ts`:
 
@@ -1639,7 +1639,7 @@ In `packages/plugin/src/main.ts`:
 
 `TFile` is a new import from `obsidian`.
 
-- [ ] **Step 3: Styles**
+- [x] **Step 3: Styles**
 
 Append to `packages/plugin/styles.css`, following the existing BEM-ish naming and Obsidian CSS variables:
 
@@ -1757,7 +1757,7 @@ Then, in a vault symlinked to `packages/plugin`, with sync configured:
 - Modify: `README.md`
 - Modify: `docs/specs/2026-09-10-obsidian-sync-design.md`
 
-- [ ] **Step 1: README**
+- [x] **Step 1: README**
 
 Remove *Version history and restore UI (the server API exists; the plugin does not call it).* from **Not yet implemented**. Add to the feature list a line describing what actually shipped, including the two limits users will hit:
 
@@ -1767,7 +1767,7 @@ If Task 10 does not ship, add to **Not yet implemented**:
 
 > Restoring a deleted note. Version rows survive a delete on the server, but no endpoint lists tombstones, so no device can name a deleted file to restore it.
 
-- [ ] **Step 2: Spec**
+- [x] **Step 2: Spec**
 
 Two edits to `docs/specs/2026-09-10-obsidian-sync-design.md`:
 
@@ -1777,7 +1777,7 @@ Two edits to `docs/specs/2026-09-10-obsidian-sync-design.md`:
 
 - The decision log: append **D6 — The version list carries the encrypted meta, and the device label rides inside it**, recording H1 and H2 and the rejected alternatives (a per-version detail endpoint; a `device_label` column). Follow the existing D1–D5 format: decision, alternative, why the alternative loses, what it costs.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `pnpm lint`
 Expected: passes. Re-read the README section end to end — it must not still claim the plugin never calls the versions API.
@@ -1816,14 +1816,14 @@ Do not build a writable retention control. It would need a per-vault retention c
 
 Run before declaring this plan complete:
 
-- [ ] `pnpm lint && pnpm build && pnpm typecheck && pnpm test` all pass from a clean clone.
-- [ ] `GET .../versions` returns `metaBlob` on every entry, clamps `limit` to 200, and 400s a non-hex `fileId` (covered by `routes/files.test.ts`).
-- [ ] Versions committed in the same millisecond come back newest-first from both the real server and `FakeServer` (covered by `files.test.ts` and exercised by `history.test.ts`).
-- [ ] The server source still contains no code path that decodes `meta_blob` or a chunk body — `grep -rn 'decrypt\|meta_blob' packages/server/src` shows storage and transport only.
-- [ ] A restore produces a **new** version whose parent is the previous head; the restored-from version is untouched and still listed (covered by `history.test.ts`).
-- [ ] Restoring the version already on disk is a no-op that commits nothing.
-- [ ] A version whose blobs are gone raises `VersionContentUnavailableError`, and a version whose meta will not decrypt is listed as unreadable and refuses to restore.
-- [ ] The diff preview declines above 2000 lines or 1 MiB instead of allocating the LCS table.
+- [x] `pnpm lint && pnpm build && pnpm typecheck && pnpm test` all pass from a clean clone.
+- [x] `GET .../versions` returns `metaBlob` on every entry, clamps `limit` to 200, and 400s a non-hex `fileId` (covered by `routes/files.test.ts`).
+- [x] Versions committed in the same millisecond come back newest-first from both the real server and `FakeServer` (covered by `files.test.ts` and exercised by `history.test.ts`).
+- [x] The server source still contains no code path that decodes `meta_blob` or a chunk body — `grep -rn 'decrypt\|meta_blob' packages/server/src` shows storage and transport only.
+- [x] A restore produces a **new** version whose parent is the previous head; the restored-from version is untouched and still listed (covered by `history.test.ts`).
+- [x] Restoring the version already on disk is a no-op that commits nothing.
+- [x] A version whose blobs are gone raises `VersionContentUnavailableError`, and a version whose meta will not decrypt is listed as unreadable and refuses to restore.
+- [x] The diff preview declines above 2000 lines or 1 MiB instead of allocating the LCS table.
 - [ ] Manual pass in a real vault (Task 8, Step 4) — including the file-menu **icon actually rendering** and an Obsidian restart rather than a plugin toggle.
 - [ ] Two devices: restore on device A, and device B pulls the restored bytes as an ordinary version with no conflict copy.
 

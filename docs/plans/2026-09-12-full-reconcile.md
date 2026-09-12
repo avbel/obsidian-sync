@@ -89,7 +89,7 @@ Pure refactor. No behaviour change, no new test. It exists because Task 4's most
 - Consumes: `FakeServer`, `MemoryVault`, `MemoryStorage`, `ApiClient`, `SyncEngine`, `FileIndex`, `BaseCache`, `LocalState`.
 - Produces: `Device`, `DeviceContext`, `DeviceOverrides`, `makeDevice(context, deviceId, overrides?)`, `fullSelective`, `memoryLocalState()` — Tasks 2 and 4 build every test device through these.
 
-- [ ] **Step 1: Create the harness module**
+- [x] **Step 1: Create the harness module**
 
 Create `packages/plugin/src/testing/devices.ts`:
 
@@ -178,7 +178,7 @@ export async function makeDevice(
 }
 ```
 
-- [ ] **Step 2: Point `engine.test.ts` at it**
+- [x] **Step 2: Point `engine.test.ts` at it**
 
 In `packages/plugin/src/engine/engine.test.ts`, delete the local `full` constant (lines 16-28), `memoryLocalState` (lines 30-38), the `Device` interface (lines 40-46) and the `makeDevice` function (lines 52-70). Replace the import block and helper with:
 
@@ -210,7 +210,7 @@ beforeEach(async () => {
 });
 ```
 
-- [ ] **Step 3: Rename the 30 call sites**
+- [x] **Step 3: Rename the 30 call sites**
 
 Every remaining `await makeDevice('x')` becomes `await device('x')`:
 
@@ -225,12 +225,12 @@ Then fix the two references to the old `full` constant in the selective-sync tes
 sed -i '' "s/\.\.\.full,/...fullSelective,/; s/full\.categories/fullSelective.categories/" packages/plugin/src/engine/engine.test.ts
 ```
 
-- [ ] **Step 4: Verify nothing changed**
+- [x] **Step 4: Verify nothing changed**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 Expected: every existing test passes, unchanged in count. `MemoryVault` and `MemoryStorage` are no longer imported directly by `engine.test.ts`; if Biome flags an unused import, remove it.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/plugin/src/testing/devices.ts packages/plugin/src/engine/engine.test.ts
@@ -253,7 +253,7 @@ git commit -m "test: lift the two-device sync harness into testing/devices"
 - Consumes: `Device` / `device()` from Task 1.
 - Produces: `SyncEngine.#applyRemoteState(fileId: string, state: FileState): Promise<number>` — the single decrypt-and-apply step for one server file record, which Task 4's `reconcile()` calls directly. `FileIndex.getByFileId(fileId: string): IndexEntry | undefined`. `FakeServer.requests: string[]`, each entry `"<METHOD> <path without query>"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to the `regressions` describe block in `packages/plugin/src/engine/engine.test.ts`:
 
@@ -289,12 +289,12 @@ Add to the `regressions` describe block in `packages/plugin/src/engine/engine.te
 	});
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `pnpm test -- engine.test`
 Expected: FAIL — `server.requests` does not exist (TypeError), and once it does, the first test reports 3 state requests rather than 1.
 
-- [ ] **Step 3: Record requests in `FakeServer`**
+- [x] **Step 3: Record requests in `FakeServer`**
 
 In `packages/plugin/src/testing/fake-server.ts`, add the field beside the other public collections (after `readonly log: StoredChange[] = [];`):
 
@@ -313,7 +313,7 @@ and record at the top of `request()`, immediately after its destructuring line:
 		const url = new URL(`http://x${path}`);
 ```
 
-- [ ] **Step 4: Add `FileIndex.getByFileId`**
+- [x] **Step 4: Add `FileIndex.getByFileId`**
 
 In `packages/plugin/src/state/file-index.ts`, add above `forgetFileId`:
 
@@ -329,7 +329,7 @@ In `packages/plugin/src/state/file-index.ts`, add above `forgetFileId`:
 	}
 ```
 
-- [ ] **Step 5: Split `#pullFileById` into fetch and apply**
+- [x] **Step 5: Split `#pullFileById` into fetch and apply**
 
 In `packages/plugin/src/engine/sync.ts`, add the protocol type to the imports at the top of the file:
 
@@ -368,7 +368,7 @@ Replace `#pullFileById` (currently `sync.ts:258-279`) with these two methods:
 	}
 ```
 
-- [ ] **Step 6: Fetch the snapshot once per page in `pullAll`**
+- [x] **Step 6: Fetch the snapshot once per page in `pullAll`**
 
 Replace the `for (const change of page.changes)` loop inside `pullAll` (currently `sync.ts:239-247`) with:
 
@@ -393,7 +393,7 @@ Replace the `for (const change of page.changes)` loop inside `pullAll` (currentl
 				}
 ```
 
-- [ ] **Step 7: Use the indexed lookup in `#applyRemoteDelete`**
+- [x] **Step 7: Use the indexed lookup in `#applyRemoteDelete`**
 
 In `#applyRemoteDelete` (currently `sync.ts:356`), replace:
 
@@ -407,12 +407,12 @@ with:
 		const entry = index.getByFileId(fileId);
 ```
 
-- [ ] **Step 8: Run the tests**
+- [x] **Step 8: Run the tests**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 Expected: PASS, including both new tests. The `regressions` suite must be unchanged otherwise — in particular `a clean merge made during a pull is uploaded by the next push` still asserts `pullAll()` returns `1`.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/plugin/src/engine/sync.ts packages/plugin/src/state/file-index.ts \
@@ -434,7 +434,7 @@ The whole diff, as a pure function. Every edge case lives here and is unit-teste
 - Consumes: nothing. Deliberately no imports.
 - Produces: `planReconcile(input: ReconcileInput): ReconcilePlan`, `describeReconcile(summary: ReconcileSummary): string`, and the types `RemoteFileSummary`, `IndexedFileSummary`, `ReconcileInput`, `ReconcilePlan`, `ReconcileSummary`. Task 4 calls `planReconcile` and returns a `ReconcileSummary`; Task 5 calls `describeReconcile`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/plugin/src/engine/reconcile.test.ts`:
 
@@ -571,12 +571,12 @@ describe('describeReconcile', () => {
 });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `pnpm test -- reconcile.test`
 Expected: FAIL — `Failed to resolve import "./reconcile.js"`.
 
-- [ ] **Step 3: Write the planner**
+- [x] **Step 3: Write the planner**
 
 Create `packages/plugin/src/engine/reconcile.ts`:
 
@@ -684,12 +684,12 @@ export function describeReconcile(summary: ReconcileSummary): string {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `pnpm test -- reconcile.test && pnpm typecheck && pnpm lint`
 Expected: PASS, 10 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/plugin/src/engine/reconcile.ts packages/plugin/src/engine/reconcile.test.ts
@@ -710,7 +710,7 @@ Wire the planner to the existing apply paths and adopt the snapshot's cursor.
 - Consumes: `planReconcile` and `ReconcileSummary` from Task 3; `#applyRemoteState` from Task 2; `makeDevice` / `fullSelective` / `Device` from Task 1.
 - Produces: `SyncEngine.reconcile(): Promise<ReconcileSummary>`, plus a re-export of `ReconcileSummary` from `sync.ts` — Task 5 imports the type from `sync.js` and `describeReconcile` from `reconcile.js`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/plugin/src/engine/reconcile-engine.test.ts`:
 
@@ -899,12 +899,12 @@ describe('full reconcile', () => {
 });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `pnpm test -- reconcile-engine`
 Expected: FAIL — `engine.reconcile is not a function`.
 
-- [ ] **Step 3: Implement `reconcile()`**
+- [x] **Step 3: Implement `reconcile()`**
 
 In `packages/plugin/src/engine/sync.ts`, add to the imports:
 
@@ -989,12 +989,12 @@ Add this method immediately after `pullAll` (which ends at `sync.ts:256`; after 
 	}
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 Expected: PASS. If `a settled vault reconciles without fetching a single blob` fails with `pulled: 2`, the index is storing a different `versionId` than the server's `headVersion` — check `#recordRemote` (`sync.ts:339-353`), which must record `remote.headVersion`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/plugin/src/engine/sync.ts packages/plugin/src/engine/reconcile-engine.test.ts
@@ -1014,7 +1014,7 @@ git commit -m "feat: reconcile the vault against GET /state"
 - Consumes: `SyncEngine.reconcile()` and `ReconcileSummary` from Task 4, `describeReconcile` from Task 3.
 - Produces: `SyncPlugin.reconcile(options?: { announce?: boolean }): Promise<void>`, `SyncPlugin.lastReconcile: ReconcileSummary | undefined`.
 
-- [ ] **Step 1: Import the pieces**
+- [x] **Step 1: Import the pieces**
 
 In `packages/plugin/src/main.ts`, extend the engine import and add the describe helper:
 
@@ -1028,7 +1028,7 @@ import {
 } from './engine/sync.js';
 ```
 
-- [ ] **Step 2: Add the request flag and the last summary**
+- [x] **Step 2: Add the request flag and the last summary**
 
 Beside the existing public fields (`main.ts:46-49`):
 
@@ -1042,7 +1042,7 @@ and beside the private ones (`main.ts:51-59`):
 	#reconcileRequested: 'silent' | 'announce' | undefined;
 ```
 
-- [ ] **Step 3: Replace `reconcile()`**
+- [x] **Step 3: Replace `reconcile()`**
 
 Replace the current one-line `reconcile()` (`main.ts:368-370`) with:
 
@@ -1062,7 +1062,7 @@ Replace the current one-line `reconcile()` (`main.ts:368-370`) with:
 	}
 ```
 
-- [ ] **Step 4: Run it inside `#runSync`**
+- [x] **Step 4: Run it inside `#runSync`**
 
 Replace `#runSync` (`main.ts:333-355`) with:
 
@@ -1109,7 +1109,7 @@ Replace `#runSync` (`main.ts:333-355`) with:
 	}
 ```
 
-- [ ] **Step 5: Reconcile on load, and clear the flag on stop**
+- [x] **Step 5: Reconcile on load, and clear the flag on stop**
 
 In `reloadEngine` (`main.ts:191-193`), replace:
 
@@ -1135,7 +1135,7 @@ In `#stopEngine` (`main.ts:444-452`), add beside the other reset lines:
 		this.#reconcileRequested = undefined;
 ```
 
-- [ ] **Step 6: Show the last reconcile in the status view**
+- [x] **Step 6: Show the last reconcile in the status view**
 
 In `packages/plugin/src/obsidian/status-view.ts`, after the `lastSync` block (which ends at line 45):
 
@@ -1149,7 +1149,7 @@ In `packages/plugin/src/obsidian/status-view.ts`, after the `lastSync` block (wh
 		}
 ```
 
-- [ ] **Step 7: Update the README**
+- [x] **Step 7: Update the README**
 
 Remove the reconcile bullet from *Not yet implemented* (`README.md:324`):
 
@@ -1182,7 +1182,7 @@ Then verify in a real vault, since `main.ts` has no unit test:
 4. Delete the plugin's `state/` directory, restart Obsidian, run *Full reconcile*. Expect the index to rebuild with **no** `(conflict …)` files created.
 5. Open the sync status view and confirm the `Last reconcile:` line.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/plugin/src/main.ts packages/plugin/src/obsidian/status-view.ts README.md

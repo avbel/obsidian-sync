@@ -118,7 +118,7 @@ Four calls were made in the absence of an explicit instruction. Each is stated h
 - Consumes: `StateStorage` from `packages/plugin/src/state/storage.js` (`read`/`write`/`remove`, all async, keyed by a filename); `MemoryStorage` from `packages/plugin/src/testing/memory-fixtures.js` for tests.
 - Produces: `PendingQueue` with `load()`, `enqueue(path, intent)`, `enqueueBatch(batch)`, `ready(now, intent)`, `succeed(path)`, `fail(path, delayMs, now, message)`, `block(path, reason)`, `forget(path)`, `pause(until)`, `resume()`, `pausedUntil()`, `readyAt()`, `depth()`, `blockedItems()`, `all()`, `save()`, `clear()`. Types `PendingIntent = 'upsert' | 'delete'`, `BlockReason = 'oversize'`, `PendingItem`, `DirtyPaths`, `QueueDepth`. Tasks 3, 4, and 5 all depend on these exact names.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/plugin/src/state/pending-queue.test.ts`:
 
@@ -300,12 +300,12 @@ describe('PendingQueue', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm vitest run packages/plugin/src/state/pending-queue.test.ts`
 Expected: FAIL — `Failed to resolve import "./pending-queue.js"`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `packages/plugin/src/state/pending-queue.ts`:
 
@@ -544,12 +544,12 @@ export class PendingQueue {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm vitest run packages/plugin/src/state/pending-queue.test.ts`
 Expected: PASS, 15 tests.
 
-- [ ] **Step 5: Verify the whole suite and commit**
+- [x] **Step 5: Verify the whole suite and commit**
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint
@@ -569,7 +569,7 @@ git commit -m "feat: add the durable pending-push queue"
 - Consumes: `UnauthorizedError`, `DiskFullError`, `TimeoutError`, `ServerError` from `packages/plugin/src/transport/client.js`.
 - Produces: `FailureKind = 'halt' | 'pause' | 'retry-all' | 'retry-item'`, `retryDelayMs(attempts: number): number`, `classifyFailure(error: unknown): FailureKind`, and the constants `maxRetryDelayMs` and `consecutiveFailureLimit`. Task 3 imports all five.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/plugin/src/engine/backoff.test.ts`:
 
@@ -634,12 +634,12 @@ describe('classifyFailure', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm vitest run packages/plugin/src/engine/backoff.test.ts`
 Expected: FAIL — `Failed to resolve import "./backoff.js"`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `packages/plugin/src/engine/backoff.ts`:
 
@@ -697,12 +697,12 @@ export function classifyFailure(error: unknown): FailureKind {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm vitest run packages/plugin/src/engine/backoff.test.ts`
 Expected: PASS, 9 tests.
 
-- [ ] **Step 5: Verify the whole suite and commit**
+- [x] **Step 5: Verify the whole suite and commit**
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint
@@ -727,7 +727,7 @@ git commit -m "feat: add exponential retry backoff and failure classification"
 - Consumes: `PendingQueue`, `PendingItem`, `PendingIntent` from Task 1; `classifyFailure`, `retryDelayMs`, `maxRetryDelayMs`, `consecutiveFailureLimit`, `FailureKind` from Task 2.
 - Produces: `SyncEngineDeps.queue: PendingQueue` (a required dependency — every construction site must supply one); `PushOptions { fullScan?: boolean | undefined }`; `PushReport { pushed: number; deleted: number; failed: number; stoppedEarly: boolean }`; `pushAll(options?: PushOptions): Promise<PushReport>`; `VaultAdapter.stat(path: string): Promise<VaultFile | undefined>`; `Device.queue` and `Device.storage`, plus `DeviceOverrides.storage`, on the test harness. Tasks 4 and 5 depend on all of these.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/plugin/src/engine/queue-engine.test.ts`:
 
@@ -926,12 +926,12 @@ describe('the durable queue', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm vitest run packages/plugin/src/engine/queue-engine.test.ts`
 Expected: FAIL — `laptop.queue` and `laptop.storage` do not exist on `Device`, and `pushAll` does not accept `PushOptions`.
 
-- [ ] **Step 3: Add `stat` to the vault surface**
+- [x] **Step 3: Add `stat` to the vault surface**
 
 In `packages/plugin/src/engine/vault.ts`, add to the `VaultAdapter` interface, directly under `exists`:
 
@@ -997,7 +997,7 @@ In `packages/plugin/src/testing/memory-fixtures.ts`, add to `MemoryVault`, direc
 	}
 ```
 
-- [ ] **Step 4: Give the test harness a queue and a shared, reusable storage**
+- [x] **Step 4: Give the test harness a queue and a shared, reusable storage**
 
 In `packages/plugin/src/testing/devices.ts`, add the import and replace `DeviceOverrides`, `Device`, and `makeDevice`:
 
@@ -1386,7 +1386,7 @@ Then change `#pushDelete` (`sync.ts:214-237`) to report whether it actually dele
 	}
 ```
 
-- [ ] **Step 6: Migrate the five existing `pushAll([...])` call sites**
+- [x] **Step 6: Migrate the five existing `pushAll([...])` call sites**
 
 Each is the same mechanical change: queue the delete, then push with no argument so the full scan still runs exactly as before.
 
@@ -1419,14 +1419,14 @@ In `packages/plugin/src/engine/reconcile-engine.test.ts`, replace line 83 and li
 		await laptop.engine.pushAll();
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `pnpm vitest run packages/plugin/src/engine/`
 Expected: PASS — the 7 new queue tests plus every pre-existing engine and reconcile test, unchanged in meaning.
 
 If `engine.test.ts:238` ("Assert on the change log, not the end state") fails, the `vault.exists` guard in `#pushDelete` has been weakened. Restore it rather than adjusting the test: that test exists because without the guard two devices delete and recreate the same file at each other forever.
 
-- [ ] **Step 8: Verify the whole suite and commit**
+- [x] **Step 8: Verify the whole suite and commit**
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint
@@ -1512,7 +1512,7 @@ export function wakeDelayMs(readyAt: number | undefined, now: number): number | 
 Run: `pnpm vitest run packages/plugin/src/obsidian/retry-timer.test.ts`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 5: Wire the queue into the plugin**
+- [x] **Step 5: Wire the queue into the plugin**
 
 In `packages/plugin/src/main.ts`, add `UnauthorizedError` to the existing client import (line 39) and add two more:
 
@@ -1733,7 +1733,7 @@ And extend `#stopEngine` (lines 560-569) with:
 		this.#fullScanRequested = false;
 ```
 
-- [ ] **Step 6: Confirm the in-memory queue is gone, then verify and commit**
+- [x] **Step 6: Confirm the in-memory queue is gone, then verify and commit**
 
 `#pendingDeletes` had four call sites; all four are replaced above. Confirm none survives:
 

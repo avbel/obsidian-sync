@@ -97,7 +97,7 @@ New tests go into the existing `engine.test.ts` rather than a new file, because 
   - `export type ConflictOutcome = 'resolved' | 'missing-copy' | 'stale';`
   - `resolveConflict(record: ConflictRecord, choice: ConflictChoice): Promise<ConflictOutcome>`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `packages/plugin/src/engine/engine.test.ts`. Note `ConflictChoice` is not imported — the string literals are inferred at the call site.
 
@@ -184,13 +184,13 @@ describe('conflict resolution', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm vitest run packages/plugin/src/engine/engine.test.ts`
 
 Expected: FAIL — `b.engine.resolveConflict is not a function`.
 
-- [ ] **Step 3: Add the types next to `ConflictRecord` in `sync.ts`**
+- [x] **Step 3: Add the types next to `ConflictRecord` in `sync.ts`**
 
 Directly below the `ConflictRecord` interface (line 14-17):
 
@@ -205,7 +205,7 @@ export type ConflictChoice = 'mine' | 'remote' | 'both';
 export type ConflictOutcome = 'resolved' | 'missing-copy' | 'stale';
 ```
 
-- [ ] **Step 4: Implement `resolveConflict` in `SyncEngine`**
+- [x] **Step 4: Implement `resolveConflict` in `SyncEngine`**
 
 Add as a public method immediately after `#conflictCopy`:
 
@@ -246,7 +246,7 @@ Add as a public method immediately after `#conflictCopy`:
 	}
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `pnpm vitest run packages/plugin/src/engine/engine.test.ts`
 
@@ -256,7 +256,7 @@ Run: `pnpm test`
 
 Expected: PASS, all files.
 
-- [ ] **Step 6: Lint, typecheck, commit**
+- [x] **Step 6: Lint, typecheck, commit**
 
 ```bash
 pnpm lint:fix && pnpm typecheck
@@ -278,7 +278,7 @@ Deliverable: unresolved conflicts survive a restart and never appear twice for t
 - Consumes: `LocalStateStore { get(key): string | null; set(key, value): void }` from `state/local-state.ts`; `ConflictRecord` from `engine/sync.js` (type-only import, so no runtime cycle).
 - Produces: `class ConflictList` with `all(): ConflictRecord[]`, `add(record: ConflictRecord): void`, `remove(path: string): void`, `prune(exists: (path: string) => Promise<boolean>): Promise<void>`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `packages/plugin/src/state/conflict-list.test.ts`:
 
@@ -349,13 +349,13 @@ describe('ConflictList', () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `pnpm vitest run packages/plugin/src/state/conflict-list.test.ts`
 
 Expected: FAIL — cannot resolve `./conflict-list.js`.
 
-- [ ] **Step 3: Implement `ConflictList`**
+- [x] **Step 3: Implement `ConflictList`**
 
 `packages/plugin/src/state/conflict-list.ts`:
 
@@ -426,13 +426,13 @@ export class ConflictList {
 }
 ```
 
-- [ ] **Step 4: Run it to verify it passes**
+- [x] **Step 4: Run it to verify it passes**
 
 Run: `pnpm vitest run packages/plugin/src/state/conflict-list.test.ts`
 
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Lint, typecheck, commit**
+- [x] **Step 5: Lint, typecheck, commit**
 
 ```bash
 pnpm lint:fix && pnpm typecheck
@@ -456,7 +456,7 @@ Because there is no diff view in this scope, the mtime and size lines are the *o
 - Consumes: `ConflictChoice`, `ConflictRecord` from `engine/sync.js` (Task 1).
 - Produces: `class ConflictModal extends Modal`, constructed as `new ConflictModal(app, record, onChoose)` where `onChoose: (choice: ConflictChoice) => Promise<void>`.
 
-- [ ] **Step 1: Write the modal**
+- [x] **Step 1: Write the modal**
 
 `packages/plugin/src/obsidian/conflict-modal.ts`:
 
@@ -567,7 +567,7 @@ export class ConflictModal extends Modal {
 }
 ```
 
-- [ ] **Step 2: Add the styles**
+- [x] **Step 2: Add the styles**
 
 Append to `packages/plugin/styles.css`, above the core-Sync-hiding block:
 
@@ -593,7 +593,7 @@ Append to `packages/plugin/styles.css`, above the core-Sync-hiding block:
 }
 ```
 
-- [ ] **Step 3: Typecheck and commit**
+- [x] **Step 3: Typecheck and commit**
 
 Nothing imports the modal yet, so `pnpm typecheck` is the whole gate here.
 
@@ -618,7 +618,7 @@ Deliverable: a conflict is reachable and resolvable from the sidebar, the notice
 - Consumes: everything from Tasks 1–3.
 - Produces: `SyncPlugin.pendingConflicts: ConflictRecord[]` (now a getter over `ConflictList`), `SyncPlugin.resolveConflict(record, choice): Promise<void>`, `SyncPlugin.openConflict(record): void`.
 
-- [ ] **Step 1: Own the list in `main.ts`**
+- [x] **Step 1: Own the list in `main.ts`**
 
 Add `ConflictChoice` to the **existing** engine import rather than a second statement from the same module — Biome's import organiser will reject a duplicate:
 
@@ -665,7 +665,7 @@ Replace the `onConflict` callback passed to `new SyncEngine({...})` in `#buildEn
 			},
 ```
 
-- [ ] **Step 2: Prune the list once the vault is actually visible**
+- [x] **Step 2: Prune the list once the vault is actually visible**
 
 Obsidian populates its file cache *after* layout, so at `onload()` every `exists()` answers `false` and a prune would delete the whole list — the same trap that made absence read as a mass delete on the push path.
 
@@ -694,7 +694,7 @@ and add the method (`.then()` is banned by the constraints, hence a real async m
 	}
 ```
 
-- [ ] **Step 3: Add the resolve and open methods to `SyncPlugin`**
+- [x] **Step 3: Add the resolve and open methods to `SyncPlugin`**
 
 ```typescript
 	openConflict(record: ConflictRecord): void {
@@ -739,7 +739,7 @@ and add the method (`.then()` is banned by the constraints, hence a real async m
 	}
 ```
 
-- [ ] **Step 4: Register a command**
+- [x] **Step 4: Register a command**
 
 In `#registerCommands()`, after the existing `open-status` command:
 
@@ -758,7 +758,7 @@ In `#registerCommands()`, after the existing `open-status` command:
 		});
 ```
 
-- [ ] **Step 5: Make the sidebar rows resolve**
+- [x] **Step 5: Make the sidebar rows resolve**
 
 In `status-view.ts`, replace the `pendingConflicts` block with rows that open the modal:
 
@@ -790,7 +790,7 @@ And widen the row rule in `styles.css` so the button sits beside the path:
 }
 ```
 
-- [ ] **Step 6: Verify the whole suite still passes**
+- [x] **Step 6: Verify the whole suite still passes**
 
 Run: `pnpm lint:fix && pnpm typecheck && pnpm test && pnpm build`
 
@@ -809,7 +809,7 @@ Automated tests cannot reach Obsidian's Modal. Run this once; a plugin reload is
 7. Force a conflict, then **restart Obsidian without resolving** → the sidebar still lists it.
 8. Open the modal, and before clicking, edit the note in another pane → *Keep mine* reports "changed just now" and keeps both files.
 
-- [ ] **Step 8: Update the README**
+- [x] **Step 8: Update the README**
 
 In *Not yet implemented*, delete the bullet:
 
@@ -819,7 +819,7 @@ and add to the feature list, near the sync-status description:
 
 > - Conflict resolution: an unmergeable edit is copied aside and listed in the sync status view until you choose *keep mine*, *keep theirs*, or *keep both*. The list survives a restart. There is no diff view yet — the modal opens both files side by side instead.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/plugin/src/main.ts packages/plugin/src/obsidian/status-view.ts packages/plugin/styles.css README.md
@@ -833,8 +833,8 @@ git commit -m "feat: resolve sync conflicts from the sidebar, a notice, or a com
 - [ ] A conflict can be resolved three ways from the sidebar, the notice, and the command palette.
 - [ ] *Keep mine* republishes to the other device on the next sync (covered by an engine test, verified manually).
 - [ ] An unresolved conflict is still listed after an Obsidian restart.
-- [ ] Resolving never destroys bytes: the losing side goes to the trash, never `remove()`, and a concurrent edit aborts the write rather than clobbering it.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` all pass.
+- [x] Resolving never destroys bytes: the losing side goes to the trash, never `remove()`, and a concurrent edit aborts the write rather than clobbering it.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` all pass.
 
 ## Known residual race
 
