@@ -21,7 +21,7 @@ The server stores ciphertext and never holds a key. It cannot read your notes, t
 | **Whole-vault coverage** | Markdown, attachments, and `.obsidian` configuration — themes, snippets, and other plugins' `data.json`. |
 | **Any number of devices** | Desktop (Windows, macOS, Linux), iOS, and Android from one plugin build. |
 | **Near-real-time** | A WebSocket push channel over `https://`, a held-open long-poll over `http://`, and fixed-interval polling as an always-available fallback. The channel carries only sequence numbers, so switching between them is invisible to the sync engine. |
-| **Offline-correct** | Edit on a plane, land, and converge. The cursor advances only after a batch is applied, so a crash replays rather than skips, and a delete that never reached the server is recovered by reconciling the index against the vault. |
+| **Offline-correct** | Edit on a plane, land, and converge. Pending uploads and deletes are written to disk before any network call, so they survive a quit, a crash, or a force-quit. The cursor advances only after a batch is applied, so a crash replays rather than skips. |
 | **Selective sync** | Per-device toggles for markdown, attachments, vault configuration, themes, snippets, and plugin settings; a comma-separated folder exclusion list; and a maximum file size above which files are skipped. Changes apply to a running sync without a restart. |
 | **Version history** | Per-note history with a diff preview and restore. Restoring commits a new version rather than rewriting history. History follows the path, so a rename starts a new chain; how far back it goes is set by the server's `VERSION_RETENTION_DAYS` and `VERSION_RETENTION_MIN`. |
 
@@ -285,6 +285,12 @@ Files whose server head already matches the index are never decrypted or downloa
 
 If the server lists no files at all while the index still tracks several, every local removal is withheld and the reason is surfaced. A vault that reports itself empty is far more often a wrong vault id or a restored blank database than a real mass delete.
 
+## Offline queue
+
+Every change the watcher sees is written to a queue on disk *before* any network call, so a note edited or deleted while offline survives a quit, a crash, or a force-quit and is pushed on the next run. The queue lives beside the file index in the plugin's own state directory, which is itself never synced.
+
+A failure backs off rather than spins: a file that cannot be pushed is retried after 5 s, then 10, 20, 40, 80, 160, and every 5 minutes after that, and the delay is persisted with it so a restart does not reset the clock. A 5xx, a timeout, or an unreachable server pauses the whole queue for one interval instead of attempting every file in turn; a 4xx defers only the file that caused it. A rejected token stops uploads entirely until the credentials are corrected, which any settings save or plugin reload picks up. A file above the size limit is set aside rather than blocking everything behind it.
+
 ## What is never synced
 
 - `workspace.json` and `workspace-mobile.json` — they describe device-local pane layout.
@@ -328,7 +334,6 @@ The highest-value suite is `packages/plugin/src/engine/engine.test.ts`: two in-p
 The design describes more than is built. Currently missing:
 
 - First-run setup wizard, and the *Verify passphrase* action.
-- Durable, restart-surviving offline queue. Pending deletes are held in memory; a lost delete is recovered on the next sync by reconciling the index against the vault, so correctness holds, but the queue itself is not persisted.
 - Restoring a deleted note. Version rows survive a delete on the server, but no endpoint lists tombstones, so no device can name a deleted file to restore it.
 
 ---
