@@ -76,6 +76,7 @@ export class SyncEngine {
 	#selective: SelectiveSyncOptions;
 	#deviceLabel: string;
 	#sawVault = false;
+	#retired = false;
 
 	constructor(deps: SyncEngineDeps) {
 		this.#deps = deps;
@@ -97,6 +98,21 @@ export class SyncEngine {
 		this.#deps.onStatus?.(status);
 	}
 
+	/**
+	 * Stand down: the plugin has built a replacement engine over the same index, base
+	 * cache and queue files. A run already in flight keeps unwinding — there is nothing
+	 * to interrupt it mid-await — so it must instead stop doing work and stop persisting.
+	 * These stores are whole-file writes with no merge, so one save from this stale view
+	 * would resurrect items the replacement already drained, or erase a persisted halt.
+	 *
+	 * Dropping the unsaved half is safe by the same reasoning that lets the watchdog
+	 * abandon a run: a vault write whose index entry never landed is re-adopted byte-for
+	 * byte on the next pull or reconcile.
+	 */
+	retire(): void {
+		this.#retired = true;
+	}
+
 	/** Drain queued changes. Full scans are reserved for reconciliation and recovery. */
 	async pushAll(options: { fullScan?: boolean } = { fullScan: true }): Promise<void> {
 		const { index, queue } = this.#deps;
@@ -112,9 +128,11 @@ export class SyncEngine {
 		} finally {
 			// Saved here rather than after the drain so a halt thrown out of it still keeps
 			// the commits that did land; replaying one costs a 409 and a /state fetch each.
-			await index.save();
-			await this.#deps.bases.save();
-			await queue.save();
+			if (!this.#retired) {
+				await index.save();
+				await this.#deps.bases.save();
+				await queue.save();
+			}
 			this.#status('idle');
 		}
 	}
@@ -127,7 +145,7 @@ export class SyncEngine {
 	async #drainReady(intent: PendingIntent, now: number): Promise<void> {
 		const { queue } = this.#deps;
 		for (const item of queue.ready(now, intent)) {
-			if (queue.pausedUntil() > now) {
+			if (this.#retired || queue.pausedUntil() > now) {
 				return;
 			}
 			await this.#drain(item.path, intent, now);
@@ -312,7 +330,7 @@ export class SyncEngine {
 		try {
 			let cursor = local.getCursor();
 			let hasMore = true;
-			while (hasMore) {
+			while (hasMore && !this.#retired) {
 				const page = await client.changes(vaultId, cursor, 0);
 				// One snapshot per page. It is taken after the page, so every change in the
 				// page is reflected in it, and anything newer arrives under a later cursor.
@@ -336,8 +354,10 @@ export class SyncEngine {
 				local.setCursor(cursor);
 				hasMore = page.hasMore;
 			}
-			await this.#deps.index.save();
-			await this.#deps.bases.save();
+			if (!this.#retired) {
+				await this.#deps.index.save();
+				await this.#deps.bases.save();
+			}
 			return merged;
 		} finally {
 			this.#status('idle');
@@ -395,8 +415,10 @@ export class SyncEngine {
 			// safe cursor. Raised only: a pull already further ahead must not replay.
 			local.setCursor(Math.max(local.getCursor(), snapshot.seq));
 
-			await index.save();
-			await bases.save();
+			if (!this.#retired) {
+				await index.save();
+				await bases.save();
+			}
 
 			return {
 				remoteFiles: snapshot.files.length,

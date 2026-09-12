@@ -211,3 +211,57 @@ describe('a path from another device is never trusted', () => {
 		);
 	});
 });
+
+describe('an engine the plugin has replaced', () => {
+	test('does not erase work its replacement queued', async () => {
+		const first = await device('laptop');
+		first.vault.putText('a.md', 'one\n');
+		first.queue.enqueue('a.md', 'upsert');
+		await first.queue.save();
+
+		// The plugin rebuilt the engine — a settings save, say — over the same state files.
+		const second = await makeDevice({ server, keys, client }, 'laptop', {
+			vault: first.vault,
+			storage: first.storage,
+		});
+		await second.engine.pushAll({ fullScan: false });
+		second.vault.putText('b.md', 'two\n');
+		second.queue.enqueue('b.md', 'upsert');
+		await second.queue.save();
+
+		// Only now does the abandoned run unwind, still holding its pre-rebuild view.
+		first.engine.retire();
+		await first.engine.pushAll({ fullScan: false });
+
+		const reloaded = await makeDevice({ server, keys, client }, 'laptop', {
+			vault: first.vault,
+			storage: first.storage,
+		});
+		expect(reloaded.queue.all().map((item) => item.path)).toEqual(['b.md']);
+	});
+
+	test('stops draining instead of finishing the pass', async () => {
+		const laptop = await device('laptop');
+		queueThree(laptop);
+
+		laptop.engine.retire();
+		const before = server.requests.length;
+		await laptop.engine.pushAll({ fullScan: false });
+
+		expect(server.requests.length).toBe(before);
+		expect(laptop.queue.depth()).toEqual({ upserts: 3, deletes: 0, blocked: 0 });
+	});
+
+	test('stops pulling rather than applying changes its replacement will handle', async () => {
+		const seed = await device('seed');
+		seed.vault.putText('shared.md', 'from seed\n');
+		await seed.engine.pushAll();
+
+		const laptop = await device('laptop');
+		laptop.engine.retire();
+		await laptop.engine.pullAll();
+
+		expect(await laptop.vault.exists('shared.md')).toBe(false);
+		expect(laptop.index.entries()).toEqual([]);
+	});
+});

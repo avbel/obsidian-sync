@@ -429,7 +429,7 @@ export default class SyncPlugin extends Plugin {
 		// Raced against a watchdog: a run that somehow never settles must not leave every
 		// later requestSync() awaiting a dead promise, which silently disables sync until
 		// the plugin is reloaded. Runs are idempotent, so abandoning one is safe.
-		this.#syncing = Promise.race([
+		const run = Promise.race([
 			(async () => {
 				do {
 					this.#resyncRequested = false;
@@ -440,10 +440,15 @@ export default class SyncPlugin extends Plugin {
 				setTimeout(resolve, syncWatchdogMs);
 			}),
 		]);
+		this.#syncing = run;
 		try {
-			await this.#syncing;
+			await run;
 		} finally {
-			this.#syncing = null;
+			// Released by identity: a blind null would hand the lock back on behalf of a run
+			// this call never owned, letting the next nudge start a second concurrent pass.
+			if (this.#syncing === run) {
+				this.#syncing = null;
+			}
 		}
 	}
 
@@ -656,7 +661,11 @@ export default class SyncPlugin extends Plugin {
 			window.clearTimeout(this.#retryTimer);
 			this.#retryTimer = null;
 		}
-		this.#syncing = null;
+		// A run may still be unwinding inside requestSync; nothing can interrupt it mid-await.
+		// Retiring stops it writing index, bases and queue files the replacement engine now
+		// owns. #syncing is deliberately left for that run to release, because clearing it
+		// here would let the next nudge start a second pass while this one is still going.
+		this.#engine?.retire();
 		this.#resyncRequested = false;
 		this.#reconcileRequested = undefined;
 		this.#watcher?.stop();
