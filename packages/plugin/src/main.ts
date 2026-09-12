@@ -7,8 +7,10 @@ import {
 	type SecretStorage,
 	setIcon,
 	setTooltip,
+	TFile,
 } from 'obsidian';
 import { derivePurposeKeys, type PurposeKeys } from './crypto/keys.js';
+import { VersionHistoryService } from './engine/history.js';
 import { describeReconcile } from './engine/reconcile.js';
 import { pluginId } from './engine/selective.js';
 import {
@@ -24,6 +26,7 @@ import { createLocalStateStore, createStateStorage } from './obsidian/state-stor
 import { statusIcon, statusIconClass, statusTooltip } from './obsidian/status-display.js';
 import { SyncStatusView, syncStatusViewType } from './obsidian/status-view.js';
 import { createVaultAdapter } from './obsidian/vault-adapter.js';
+import { VersionHistoryModal } from './obsidian/version-history-modal.js';
 import { DebouncedWatcher } from './obsidian/watcher.js';
 import {
 	defaultSettings,
@@ -64,6 +67,7 @@ export default class SyncPlugin extends Plugin {
 	}
 
 	#engine: SyncEngine | null = null;
+	#history: VersionHistoryService | null = null;
 	#keys: PurposeKeys | null = null;
 	#nudge: NudgeSource | null = null;
 	#watcher: DebouncedWatcher | null = null;
@@ -86,6 +90,19 @@ export default class SyncPlugin extends Plugin {
 		this.addSettingTab(new SyncSettingTab(this));
 		this.addRibbonIcon('refresh-cw', 'Open sync status', () => void this.openStatusView());
 		this.#registerCommands();
+		this.registerEvent(
+			this.app.workspace.on('file-menu', (menu, file) => {
+				if (!(file instanceof TFile)) {
+					return;
+				}
+				menu.addItem((item) =>
+					item
+						.setTitle('Sync version history')
+						.setIcon('history')
+						.onClick(() => void this.openVersionHistory(file.path)),
+				);
+			}),
+		);
 		this.registerView(syncStatusViewType, (leaf) => new SyncStatusView(this, leaf));
 
 		if (!Platform.isPhone) {
@@ -171,6 +188,20 @@ export default class SyncPlugin extends Plugin {
 			id: 'reconcile',
 			name: 'Full reconcile',
 			callback: () => void this.reconcile(),
+		});
+		this.addCommand({
+			id: 'version-history',
+			name: 'Show version history for current file',
+			checkCallback: (checking) => {
+				const file = this.app.workspace.getActiveFile();
+				if (file === null) {
+					return false;
+				}
+				if (!checking) {
+					void this.openVersionHistory(file.path);
+				}
+				return true;
+			},
 		});
 	}
 
@@ -264,11 +295,12 @@ export default class SyncPlugin extends Plugin {
 		const local = new LocalState(createLocalStateStore(this.app));
 		const deviceId = local.ensureDeviceId(() => crypto.randomUUID());
 
+		const vaultAdapter = createVaultAdapter(this.app);
 		this.#engine = new SyncEngine({
 			vaultId: vault.id,
 			client,
 			keys: this.#keys,
-			vault: createVaultAdapter(this.app),
+			vault: vaultAdapter,
 			index,
 			bases,
 			local,
@@ -285,6 +317,15 @@ export default class SyncPlugin extends Plugin {
 					this.openConflict(conflict);
 				});
 			},
+		});
+		this.#history = new VersionHistoryService({
+			vaultId: vault.id,
+			client,
+			keys: this.#keys,
+			vault: vaultAdapter,
+			index,
+			deviceId,
+			requestSync: () => this.requestSync(),
 		});
 		this.vaultIdForNudge = vault.id;
 		this.clientForNudge = client;
@@ -450,6 +491,14 @@ export default class SyncPlugin extends Plugin {
 		new ConflictModal(this.app, record, (choice) => this.resolveConflict(record, choice)).open();
 	}
 
+	async openVersionHistory(path: string): Promise<void> {
+		if (this.#history === null) {
+			new Notice('Obsidian Sync: start sync before opening version history.');
+			return;
+		}
+		new VersionHistoryModal(this.app, this.#history, path).open();
+	}
+
 	async resolveConflict(record: ConflictRecord, choice: ConflictChoice): Promise<void> {
 		if (this.#engine === null) {
 			new Notice('Sync is not running, so this conflict cannot be resolved yet.');
@@ -568,6 +617,7 @@ export default class SyncPlugin extends Plugin {
 		this.#nudge = null;
 		this.#watcher = null;
 		this.#engine = null;
+		this.#history = null;
 	}
 }
 

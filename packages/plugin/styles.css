@@ -96,3 +96,93 @@ body.obsidian-sync-hide-core-sync .status-bar-item.plugin-sync,
 body.obsidian-sync-hide-core-sync .status-bar-item:has(.sync-status-icon) {
 	display: none !important;
 }
+
+.obsidian-sync-history__body {
+	display: flex;
+	gap: 12px;
+	min-height: 320px;
+	max-height: 60vh;
+}
+
+.obsidian-sync-history__list {
+	flex: 0 0 240px;
+	overflow-y: auto;
+	border-right: 1px solid var(--background-modifier-border);
+	padding-right: 8px;
+}
+
+.obsidian-sync-history__row {
+	display: block;
+	width: 100%;
+	text-align: left;
+	background: transparent;
+	border: none;
+	padding: 6px 8px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+}
+
+.obsidian-sync-history__row:hover,
+.obsidian-sync-history__row.is-active {
+	background: var(--background-modifier-hover);
+}
+
+.obsidian-sync-history__meta,
+.obsidian-sync-history__footnote {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.obsidian-sync-history__badge {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-accent);
+}
+
+.obsidian-sync-history__badge.is-error {
+	color: var(--text-error);
+}
+
+.obsidian-sync-history__detail {
+	flex: 1 1 auto;
+	overflow-y: auto;
+}
+
+.obsidian-sync-history__diff {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	white-space: pre-wrap;
+	margin-top: 8px;
+}
+
+.obsidian-sync-history__line.is-insert {
+	background: rgba(var(--color-green-rgb), 0.15);
+}
+
+.obsidian-sync-history__line.is-delete {
+	background: rgba(var(--color-red-rgb), 0.15);
+}
+
+.obsidian-sync-history__error {
+	color: var(--text-error);
+}
+
+.obsidian-sync-history__actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 12px;
+	flex-wrap: wrap;
+}
+
+/* Phones have no room for two columns; the list scrolls above the diff (§6.3.6). */
+.obsidian-sync-history--stacked .obsidian-sync-history__body {
+	flex-direction: column;
+	max-height: 75vh;
+}
+
+.obsidian-sync-history--stacked .obsidian-sync-history__list {
+	flex: 0 0 auto;
+	max-height: 30vh;
+	border-right: none;
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding-right: 0;
+}
