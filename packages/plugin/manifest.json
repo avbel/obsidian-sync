@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-sync",
 	"name": "Obsidian Sync",
-	"version": "0.0.11",
+	"version": "0.0.12",
 	"minAppVersion": "1.13.2",
 	"description": "Self-hosted, end-to-end encrypted vault sync over a Tailscale tailnet.",
 	"author": "avbel",

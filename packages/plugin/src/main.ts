@@ -152,6 +152,7 @@ export default class SyncPlugin extends Plugin {
 			// before the cache is populated makes every tracked note look absent, which
 			// the push path reads as a delete and propagates to every other device.
 			await this.reloadEngine();
+			void this.requestSync();
 		}
 	}
 
@@ -288,7 +289,12 @@ export default class SyncPlugin extends Plugin {
 			if (this.settings.syncOnStartup) {
 				// A restart is exactly when the cursor may be stale or the state directory
 				// gone, so the first run of a session is the full comparison, not a nudge.
-				await this.reconcile({ announce: false });
+				//
+				// The flag alone: reconcile() would await requestSync(), and reloadEngine is
+				// also reached from inside #runSync when an earlier build failed. requestSync
+				// hands back that very run's own promise, so awaiting it there deadlocks sync
+				// until the five-minute watchdog fires. Starting the run is the caller's job.
+				this.#reconcileRequested = mergeReconcile(this.#reconcileRequested, 'silent');
 			}
 		} catch (error) {
 			this.#setStatus('error');
@@ -473,7 +479,11 @@ export default class SyncPlugin extends Plugin {
 	async #runSync(): Promise<void> {
 		if (this.#engine === null) {
 			await this.reloadEngine();
-			return;
+			if (this.#engine === null) {
+				return;
+			}
+			// Rebuilt, so carry on into this same run: a queue that has been waiting out an
+			// unreachable server drains now rather than on whatever happens to fire next.
 		}
 		const reconciling = this.#reconcileRequested;
 		this.#reconcileRequested = undefined;

@@ -98,7 +98,9 @@ export class SyncSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('Sync').setHeading();
 		new Setting(containerEl).setName('Enable sync').addToggle((toggle) =>
 			toggle.setValue(settings.enabled).onChange((value) => {
-				void update({ enabled: value }).then(() => this.#plugin.reloadEngine());
+				void update({ enabled: value })
+					.then(() => this.#plugin.reloadEngine())
+					.then(() => this.#plugin.requestSync());
 			}),
 		);
 		new Setting(containerEl).setName('Transport').addDropdown((dropdown) =>
