@@ -217,13 +217,13 @@ Chunk and encrypt `body`; set `compression: packed === undefined ? undefined : '
 
 Separate from the above and worth far less, but nearly free. `/state` returns every file's `metaBlob` as base64, and base64 carries ~33% expansion that deflate recovers almost entirely.
 
-- [ ] **Step 1: Add `@fastify/compress` to `packages/server`, registered with `global: true` and a threshold around 1 KB**
+- [x] **Step 1: Add `@fastify/compress` to `packages/server`, registered with `global: true` and a threshold around 1 KB**
 
 - [ ] **Step 2: Confirm `requestUrl` handles `Content-Encoding` transparently on desktop *and* mobile**
 
 If it does not decode automatically, stop — do not hand-roll decoding in the transport. Revert and close the task.
 
-- [ ] **Step 3: Assert a large `/state` response carries `content-encoding` in `packages/server/src/routes/files.test.ts`, then commit**
+- [x] **Step 3: Assert a large `/state` response carries `content-encoding` in `packages/server/src/routes/files.test.ts`, then commit**
 
 ---
 

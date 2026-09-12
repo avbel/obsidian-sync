@@ -184,3 +184,59 @@ describe('parseWindow', () => {
 		expect(parseWindow({ offset: '7' }).offset).toBe(7);
 	});
 });
+
+describe('response compression', () => {
+	// /state returns every file's metaBlob as base64, whose ~33% expansion deflate
+	// recovers almost entirely. It is the one response large enough to be worth it.
+	test('compresses a large state response when the client asks for it', async () => {
+		await commitVersion(vaultId, 'bWV0YQ=='.repeat(400));
+
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/state`,
+			headers: { ...authorised(aliceToken), 'accept-encoding': 'gzip' },
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(response.headers['content-encoding']).toBe('gzip');
+	});
+
+	// Negotiated: a client that does not advertise gets exactly what it got before, which
+	// is what makes this safe to deploy without knowing how every client decodes.
+	test('sends a large state response uncompressed when the client does not ask', async () => {
+		await commitVersion(vaultId, 'bWV0YQ=='.repeat(400));
+
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/state`,
+			headers: { ...authorised(aliceToken), 'accept-encoding': 'identity' },
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(response.headers['content-encoding']).toBeUndefined();
+		expect((response.json() as { files: unknown[] }).files).toHaveLength(1);
+	});
+
+	// Blob bodies are ciphertext. application/octet-stream is not in mime-db's
+	// compressible set, so spending CPU on them is avoided without an explicit exclusion.
+	test('leaves a blob body alone even when the client asks for gzip', async () => {
+		const payload = Buffer.alloc(4096, 7);
+		const address = 'a'.repeat(64);
+		const put = await app.inject({
+			method: 'PUT',
+			url: `/v1/vaults/${vaultId}/blobs/${address}`,
+			headers: { ...authorised(aliceToken), 'content-type': 'application/octet-stream' },
+			payload,
+		});
+		expect(put.statusCode).toBe(201);
+
+		const response = await app.inject({
+			method: 'GET',
+			url: `/v1/vaults/${vaultId}/blobs/${address}`,
+			headers: { ...authorised(aliceToken), 'accept-encoding': 'gzip' },
+		});
+
+		expect(response.statusCode).toBe(200);
+		expect(response.headers['content-encoding']).toBeUndefined();
+	});
+});

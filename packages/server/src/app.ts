@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import compress from '@fastify/compress';
 import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerAuthentication } from './auth.js';
@@ -96,11 +97,26 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
 	// route cannot be added without auth by forgetting a decorator.
 	app.register(async (scope) => {
 		registerAuthentication(scope, dependencies.users);
-		registerVaultRoutes(scope, dependencies);
-		registerBlobRoutes(scope, dependencies);
-		registerFileRoutes(scope, dependencies);
-		registerChangeRoutes(scope, dependencies);
-		registerStreamRoutes(scope, dependencies);
+
+		// Blob bodies are AES-GCM ciphertext: incompressible by construction, and they are
+		// the bulk of the traffic, so compressing them would spend CPU on every sync for
+		// nothing. Scoping is what excludes them — the plugin's `customTypes` is ORed with
+		// its mime-db check rather than replacing it, so it can add types but never remove
+		// one, and mime-db calls application/octet-stream compressible.
+		scope.register(async (blobScope) => {
+			registerBlobRoutes(blobScope, dependencies);
+		});
+
+		scope.register(async (jsonScope) => {
+			// `/state` is the response that pays: it returns every file's metaBlob as
+			// base64, whose ~33% expansion deflate recovers almost entirely. Negotiated, so
+			// a client that does not advertise Accept-Encoding is served what it always was.
+			await jsonScope.register(compress, { global: true, threshold: 1024 });
+			registerVaultRoutes(jsonScope, dependencies);
+			registerFileRoutes(jsonScope, dependencies);
+			registerChangeRoutes(jsonScope, dependencies);
+			registerStreamRoutes(jsonScope, dependencies);
+		});
 	});
 
 	return app;
