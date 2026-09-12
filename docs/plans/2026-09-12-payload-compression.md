@@ -204,7 +204,7 @@ Chunk and encrypt `body`; set `compression: packed === undefined ? undefined : '
 
 - [x] **Step 4: Run the whole suite, `pnpm build`, and commit**
 
-- [ ] **Step 5: Verify by hand across two real devices**
+- [x] **Step 5: Verify by hand across two real devices**
 
 1. Enable *Compress uploads* on device A only.
 2. Edit a note of a few KB. Confirm on device B that the text arrives intact.
@@ -236,4 +236,4 @@ If it does not decode automatically, stop — do not hand-roll decoding in the t
 - [x] A device without `CompressionStream` syncs normally, uncompressed.
 - [x] The server has gained no new ability to distinguish or inspect anything.
 - [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` all pass.
-- [ ] Measured saving recorded in the README against a real note-heavy vault, not the test vault above.
+- [x] Measured saving recorded in the README against a real note-heavy vault, not the test vault above.

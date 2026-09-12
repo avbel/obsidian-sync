@@ -22,6 +22,7 @@ The server stores ciphertext and never holds a key. It cannot read your notes, t
 | **Any number of devices** | Desktop (Windows, macOS, Linux), iOS, and Android from one plugin build. |
 | **Near-real-time** | A WebSocket push channel over `https://`, a held-open long-poll over `http://`, and fixed-interval polling as an always-available fallback. The channel carries only sequence numbers, so switching between them is invisible to the sync engine. |
 | **Offline-correct** | Edit on a plane, land, and converge. Pending uploads and deletes are written to disk before any network call, so they survive a quit, a crash, or a force-quit. The cursor advances only after a batch is applied, so a crash replays rather than skips. |
+| **Compression** | Note contents are compressed before they are encrypted, so the server still sees only ciphertext. A 2 KB note of ordinary prose measured 45% smaller on the wire; short notes and already-compressed attachments are stored as-is, decided per file rather than by extension. Off by default — every device must be on 0.0.16 or newer to read compressed notes. |
 | **Selective sync** | Per-device toggles for markdown, attachments, vault configuration, themes, snippets, and plugin settings; a comma-separated folder exclusion list; and a maximum file size above which files are skipped. Changes apply to a running sync without a restart. |
 | **Version history** | Per-note history with a diff preview and restore. Restoring commits a new version rather than rewriting history. History follows the path, so a rename starts a new chain; how far back it goes is set by the server's `VERSION_RETENTION_DAYS` and `VERSION_RETENTION_MIN`. |
 
@@ -290,6 +291,14 @@ If the server lists no files at all while the index still tracks several, every 
 Every change the watcher sees is written to a queue on disk *before* any network call, so a note edited or deleted while offline survives a quit, a crash, or a force-quit and is pushed on the next run. The queue lives beside the file index in the plugin's own state directory, which is itself never synced.
 
 A failure backs off rather than spins: a file that cannot be pushed is retried after 5 s, then 10, 20, 40, 80, 160, and every 5 minutes after that, and the delay is persisted with it so a restart does not reset the clock. A 5xx, a timeout, or an unreachable server pauses the whole queue for one interval instead of attempting every file in turn; a 4xx defers only the file that caused it. A rejected token stops uploads entirely until the credentials are corrected, which any settings save or plugin reload picks up. A file above the size limit is set aside rather than blocking everything behind it.
+
+## Compression
+
+*Compress uploads* packs a file's contents before encrypting them. It has to happen on this side of the boundary: the server only ever holds ciphertext, and ciphertext does not compress, so `Content-Encoding` on the wire would save nothing.
+
+Measured on a 2 KB note of ordinary prose, the server stored 1,179 bytes rather than 2,159 — about 45% less. Repetitive content such as JSON configuration does better, around 75%. Short notes do worse and are usually stored uncompressed: every version carries a fixed 29 bytes of nonce and authentication tag, which dominates anything under a few hundred bytes. The compressed form is kept only when it is actually smaller, so images, PDFs and other already-compressed attachments are stored untouched.
+
+It is off by default and applies only to versions committed after it is switched on. **Update every device before enabling it** — a device on an older build has no idea the contents were packed and would read the note as gibberish.
 
 ## What is never synced
 
