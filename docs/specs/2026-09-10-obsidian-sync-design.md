@@ -271,7 +271,7 @@ All routes require `Authorization: Bearer <token>`.
 | `GET` | `/v1/vaults/:v/blobs/:addr` | Returns the chunk as `application/octet-stream`. |
 | `POST` | `/v1/vaults/:v/files/:fileId` | Commit a version. |
 | `DELETE` | `/v1/vaults/:v/files/:fileId` | Tombstone a file. |
-| `GET` | `/v1/vaults/:v/files/:fileId/versions` | Version history. |
+| `GET` | `/v1/vaults/:v/files/:fileId/versions?limit&offset` | Version history, newest first; each entry carries the version's `meta_blob`. |
 | `GET` | `/v1/vaults/:v/state` | Full file list with head versions, for reconcile. |
 | `WS` | `/v1/vaults/:v/stream` | Optional push channel. Carries `seq` nudges only. |
 
@@ -633,6 +633,14 @@ The reconciliation keeps every §4.4 property that is actually achievable:
 - Position integrity moves to the version layer, where it is verifiable: the ordered chunk-address list lives inside the encrypted meta envelope, authenticated under `K_content` with `AAD = fileId`. On pull the client decrypts each chunk and recomputes its address, rejecting any that does not match the authenticated list. A server that reorders, drops, or splices a chunk is therefore detected by the client rather than surfacing as corrupt vault bytes — the exact threat §4.4 cited — and cross-file splice additionally fails the meta's `fileId` AAD.
 
 The server is unaffected either way; it never decrypts.
+
+### D6 — The version list carries encrypted meta, and the device label rides inside it
+
+Version history needs each version's encrypted metadata envelope, not only its id, size, and timestamp: the authenticated ordered chunk list lives there, so without it a client cannot decrypt, preview, or restore a version. `GET /versions` therefore returns each `meta_blob` in a bounded newest-first window.
+
+The alternative was a per-version detail endpoint. It would add one round trip for every row shown in the history modal, making a 50-entry history require 51 requests before it could show labels or enable restore. The list already returns only opaque ciphertext and the encrypted envelope is small beside the version row, so that cost buys no privacy.
+
+The device label is sealed inside the same envelope rather than stored in a `device_label` column. A column would let the server correlate a human-readable machine name with every write, violating the server-knowledge boundary. The cost is one local decrypt per listed row and no label for versions committed before labels existed; the UI falls back to a short device-id prefix in that case.
 
 ### R1 — `requestUrl` has no timeout parameter
 

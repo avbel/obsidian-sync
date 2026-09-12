@@ -23,7 +23,7 @@ The server stores ciphertext and never holds a key. It cannot read your notes, t
 | **Near-real-time** | A WebSocket push channel over `https://`, a held-open long-poll over `http://`, and fixed-interval polling as an always-available fallback. The channel carries only sequence numbers, so switching between them is invisible to the sync engine. |
 | **Offline-correct** | Edit on a plane, land, and converge. The cursor advances only after a batch is applied, so a crash replays rather than skips, and a delete that never reached the server is recovered by reconciling the index against the vault. |
 | **Selective sync** | Per-device toggles for markdown, attachments, vault configuration, themes, snippets, and plugin settings; a comma-separated folder exclusion list; and a maximum file size above which files are skipped. Changes apply to a running sync without a restart. |
-| **Version history** | Every commit is a version, retained by age (default 90 days) and by a per-file minimum (default 10) regardless of age. |
+| **Version history** | Per-note history with a diff preview and restore. Restoring commits a new version rather than rewriting history. History follows the path, so a rename starts a new chain; how far back it goes is set by the server's `VERSION_RETENTION_DAYS` and `VERSION_RETENTION_MIN`. |
 
 ### Encryption
 
@@ -328,8 +328,8 @@ The highest-value suite is `packages/plugin/src/engine/engine.test.ts`: two in-p
 The design describes more than is built. Currently missing:
 
 - First-run setup wizard, and the *Verify passphrase* action.
-- Version history and restore UI (the server API exists; the plugin does not call it).
 - Durable, restart-surviving offline queue. Pending deletes are held in memory; a lost delete is recovered on the next sync by reconciling the index against the vault, so correctness holds, but the queue itself is not persisted.
+- Restoring a deleted note. Version rows survive a delete on the server, but no endpoint lists tombstones, so no device can name a deleted file to restore it.
 
 ---
 
