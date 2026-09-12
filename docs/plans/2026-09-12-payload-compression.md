@@ -44,7 +44,7 @@ Out of scope: content-defined chunking. Fixed-offset chunks mean an insert near 
 
 ## Task 1: The compression primitive
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/plugin/src/crypto/compress.test.ts`:
 
@@ -84,9 +84,9 @@ describe('compress', () => {
 });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
-- [ ] **Step 3: Implement `packages/plugin/src/crypto/compress.ts`**
+- [x] **Step 3: Implement `packages/plugin/src/crypto/compress.ts`**
 
 ```ts
 /**
@@ -120,13 +120,13 @@ export async function decompress(data: Uint8Array): Promise<Uint8Array> {
 }
 ```
 
-- [ ] **Step 4: Run the tests, then `pnpm lint && pnpm typecheck && pnpm test`, and commit**
+- [x] **Step 4: Run the tests, then `pnpm lint && pnpm typecheck && pnpm test`, and commit**
 
 ---
 
 ## Task 2: Record the choice in the encrypted meta
 
-- [ ] **Step 1: Extend `FileMeta` in `packages/plugin/src/crypto/meta.ts`**
+- [x] **Step 1: Extend `FileMeta` in `packages/plugin/src/crypto/meta.ts`**
 
 ```ts
 /** Absent on every version written before compression existed, which means stored as-is. */
@@ -135,11 +135,11 @@ compression?: 'deflate-raw' | undefined;
 
 It lives inside the meta envelope, so the server learns nothing new: it cannot tell a compressed version from an uncompressed one. `aadForFile` is unchanged, so the file↔meta binding is untouched.
 
-- [ ] **Step 2: Add a test to `packages/plugin/src/crypto/crypto.test.ts`**
+- [x] **Step 2: Add a test to `packages/plugin/src/crypto/crypto.test.ts`**
 
 Assert a meta sealed **without** `compression` decrypts to `compression === undefined` — that is the backward-compatibility contract every existing version in the vault depends on.
 
-- [ ] **Step 3: Typecheck and commit**
+- [x] **Step 3: Typecheck and commit**
 
 ---
 
@@ -147,11 +147,11 @@ Assert a meta sealed **without** `compression` decrypts to `compression === unde
 
 Phase 1 begins here: after this task a client understands compressed versions but still never writes one.
 
-- [ ] **Step 1: Write the failing test in `packages/plugin/src/engine/codec.test.ts`**
+- [x] **Step 1: Write the failing test in `packages/plugin/src/engine/codec.test.ts`**
 
 Seal a file whose meta says `compression: 'deflate-raw'` and whose chunks hold deflated bytes, then assert `decodeFile` returns the original plaintext. Add a second case with no `compression` field asserting the bytes come back untouched.
 
-- [ ] **Step 2: Implement in `packages/plugin/src/engine/codec.ts`**
+- [x] **Step 2: Implement in `packages/plugin/src/engine/codec.ts`**
 
 In `decodeFile`, after the chunks are reassembled and before the bytes are returned:
 
@@ -161,7 +161,7 @@ const data = meta.compression === 'deflate-raw' ? await decompress(joined) : joi
 
 Leave `encodeFile` alone in this task.
 
-- [ ] **Step 3: Run the tests and commit**
+- [x] **Step 3: Run the tests and commit**
 
 ---
 

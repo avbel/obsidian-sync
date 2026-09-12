@@ -29,6 +29,13 @@ export interface FileMeta {
 	 * version committed before this field existed, hence optional in both directions.
 	 */
 	deviceLabel?: string | undefined;
+	/**
+	 * How the chunk contents were packed before encryption. Absent means stored as-is,
+	 * which is every version written before compression existed and every file that did
+	 * not shrink. Sealed here rather than sent as a column, so the server cannot tell a
+	 * compressed version from an uncompressed one.
+	 */
+	compression?: 'deflate-raw' | undefined;
 }
 
 function aadForFile(fileId: string): Uint8Array {

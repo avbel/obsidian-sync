@@ -1,4 +1,5 @@
 import { splitChunks } from '../crypto/chunk.js';
+import { decompress } from '../crypto/compress.js';
 import { blobAddress, decryptChunkBlob, encryptChunkBlob } from '../crypto/content.js';
 import { hashBytes } from '../crypto/encoding.js';
 import { computeFileId, decryptPath, encryptPath } from '../crypto/identity.js';
@@ -99,7 +100,9 @@ export async function decodeFile(
 		pieces.push(plaintext);
 	}
 
-	return { path, meta, data: joinChunks(pieces) };
+	const joined = joinChunks(pieces);
+	const data = meta.compression === 'deflate-raw' ? await decompress(joined) : joined;
+	return { path, meta, data };
 }
 
 export { hashBytes };
