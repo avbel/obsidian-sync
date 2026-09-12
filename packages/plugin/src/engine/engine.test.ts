@@ -102,6 +102,19 @@ describe('two clients on one vault', () => {
 		expect(await phone.vault.exists('gone.md')).toBe(false);
 	});
 
+	test('retains an oversized queued upload as a blocked item', async () => {
+		const laptop = await makeDevice({ server, keys, client }, 'laptop', {
+			selective: { ...fullSelective, maxFileBytes: 1 },
+		});
+		laptop.vault.putText('large.md', 'too large\n');
+		laptop.queue.enqueue('large.md', 'upsert');
+
+		await laptop.engine.pushAll({ fullScan: false });
+
+		expect(laptop.queue.depth()).toEqual({ upserts: 0, deletes: 0, blocked: 1 });
+		expect(laptop.queue.blockedItems()[0]?.path).toBe('large.md');
+	});
+
 	test('disjoint edits on both devices merge on the late device', async () => {
 		const seed = await device('seed');
 		seed.vault.putText('doc.md', 'l1\nl2\nl3\nl4\n');

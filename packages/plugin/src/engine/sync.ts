@@ -159,8 +159,9 @@ export class SyncEngine {
 			const delay = retryDelayMs(attempts + 1);
 			if (failure === 'halt') {
 				queue.pause(Number.MAX_SAFE_INTEGER);
-				this.#status('error');
-				return;
+				// Persist the stop before surfacing credentials/configuration failure to the caller.
+				await queue.save();
+				throw error;
 			}
 			if (failure === 'pause' || failure === 'retry-all') {
 				queue.pause(now + delay);
