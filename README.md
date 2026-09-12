@@ -278,6 +278,8 @@ All routes require `Authorization: Bearer <token>` except health.
 
 No path through that table destroys data without an explicit choice.
 
+**Conflicts are listed on the device that hit them.** The device whose edit was displaced is the one offered *Keep mine* / *Keep theirs* / *Keep both*, in the sidebar, the notice, and the command palette. The conflict copy itself is an ordinary note, so it syncs everywhere like any other file — but other devices see only the file, not the prompt. Resolving on the device that owns it removes the copy for everyone, since the deletion propagates normally. If you would rather deal with it elsewhere, treat the copy as a normal note: merge what you want and delete it.
+
 ## Reconcile
 
 *Full reconcile* compares the whole vault against `GET /state` rather than replaying the change cursor. It runs on plugin load and on demand, and repairs what the incremental path cannot see: files that changed while the app was terminated, a cursor lost to a crash, and a wiped or restored state directory — identical bytes are adopted, so recovering a lost index produces no conflict copies.
