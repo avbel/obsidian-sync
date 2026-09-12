@@ -386,10 +386,7 @@ export default class SyncPlugin extends Plugin {
 				this.#conflicts?.add(conflict);
 				this.#renderStatusBar();
 				this.#refreshStatusView();
-				const notice = new Notice(`Conflict on ${conflict.path} — click to resolve.`, 15000);
-				notice.noticeEl.addEventListener('click', () => {
-					this.openConflict(conflict);
-				});
+				this.#noticeConflict(conflict);
 			},
 		});
 		this.#history = new VersionHistoryService({
@@ -593,6 +590,34 @@ export default class SyncPlugin extends Plugin {
 			(options.announce ?? true) ? 'announce' : 'silent',
 		);
 		await this.requestSync();
+	}
+
+	/**
+	 * A conflict notice that can actually be opened on a phone. Obsidian's notice is a
+	 * bare div, and iOS only synthesises a click on a plain element that looks
+	 * interactive, so a click-only listener never fired there — the notice looked dead
+	 * while the command palette and the sidebar row opened the same modal fine. The class
+	 * makes it look tappable, touchend covers the gesture directly, and the guard stops
+	 * the pair from opening it twice where both are delivered.
+	 */
+	#noticeConflict(conflict: ConflictRecord): void {
+		const verb = Platform.isMobile ? 'Tap' : 'Click';
+		const notice = new Notice(
+			`Conflict on ${conflict.path} — ${verb.toLowerCase()} to resolve.`,
+			15000,
+		);
+		notice.noticeEl.addClass('obsidian-sync-notice-action');
+		let handled = false;
+		const open = (): void => {
+			if (handled) {
+				return;
+			}
+			handled = true;
+			notice.hide();
+			this.openConflict(conflict);
+		};
+		notice.noticeEl.addEventListener('click', open);
+		notice.noticeEl.addEventListener('touchend', open);
 	}
 
 	openConflict(record: ConflictRecord): void {

@@ -186,3 +186,8 @@ body.obsidian-sync-hide-core-sync .status-bar-item:has(.sync-status-icon) {
 	border-bottom: 1px solid var(--background-modifier-border);
 	padding-right: 0;
 }
+
+/* iOS withholds synthesised clicks from plain elements that do not look interactive. */
+.obsidian-sync-notice-action {
+	cursor: pointer;
+}
