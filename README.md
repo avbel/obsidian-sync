@@ -298,6 +298,8 @@ A failure backs off rather than spins: a file that cannot be pushed is retried a
 
 Measured on a 2 KB note of ordinary prose, the server stored 1,179 bytes rather than 2,159 — about 45% less. Repetitive content such as JSON configuration does better, around 75%. Short notes do worse and are usually stored uncompressed: every version carries a fixed 29 bytes of nonce and authentication tag, which dominates anything under a few hundred bytes. The compressed form is kept only when it is actually smaller, so images, PDFs and other already-compressed attachments are stored untouched.
 
+The server also compresses its JSON responses when a client asks for them, which is a separate and much smaller win: `GET /state` returns every file's `metaBlob` as base64, and gzip recovers most of that expansion — measured at 31% off a 17 KB response. Blob bodies are deliberately excluded, being ciphertext and the bulk of the traffic.
+
 It is off by default and applies only to versions committed after it is switched on. **Update every device before enabling it** — a device on an older build has no idea the contents were packed and would read the note as gibberish.
 
 ## What is never synced

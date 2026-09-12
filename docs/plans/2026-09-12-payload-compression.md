@@ -219,7 +219,7 @@ Separate from the above and worth far less, but nearly free. `/state` returns ev
 
 - [x] **Step 1: Add `@fastify/compress` to `packages/server`, registered with `global: true` and a threshold around 1 KB**
 
-- [ ] **Step 2: Confirm `requestUrl` handles `Content-Encoding` transparently on desktop *and* mobile**
+- [x] **Step 2: Confirm `requestUrl` handles `Content-Encoding` transparently on desktop *and* mobile**
 
 If it does not decode automatically, stop — do not hand-roll decoding in the transport. Revert and close the task.
 
