@@ -21,6 +21,8 @@ const categoryLabels: Record<SyncCategory, string> = {
  */
 export class SyncSettingTab extends PluginSettingTab {
 	readonly #plugin: SyncPlugin;
+	/** Set by the four fields the engine is constructed from. Consumed by hide(). */
+	#connectionChanged = false;
 
 	constructor(plugin: SyncPlugin) {
 		super(plugin.app, plugin);
@@ -28,6 +30,7 @@ export class SyncSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
+		this.#connectionChanged = false;
 		const { containerEl } = this;
 		containerEl.empty();
 
@@ -47,6 +50,7 @@ export class SyncSettingTab extends PluginSettingTab {
 					.setPlaceholder('http://…')
 					.setValue(settings.serverUrl)
 					.onChange((value) => {
+						this.#connectionChanged = true;
 						void update({ serverUrl: value.trim() });
 					}),
 			);
@@ -56,14 +60,20 @@ export class SyncSettingTab extends PluginSettingTab {
 			.addText((text) => {
 				text.inputEl.type = 'password';
 				text.setValue(this.#plugin.secretOrEmpty(secretKeys.token)).onChange((value) => {
+					this.#connectionChanged = true;
 					this.#plugin.setSecret(secretKeys.token, value.trim());
 				});
 			});
-		new Setting(containerEl).setName('Test connection').addButton((button) =>
-			button.setButtonText('Test').onClick(() => {
-				void this.#plugin.testConnection();
-			}),
-		);
+		new Setting(containerEl)
+			.setName('Test connection')
+			.setDesc(
+				'Checks the URL and token as typed. Connection changes apply when you close settings.',
+			)
+			.addButton((button) =>
+				button.setButtonText('Test').onClick(() => {
+					void this.#plugin.testConnection();
+				}),
+			);
 		new Setting(containerEl)
 			.setName('Device label')
 			.setDesc('Names this device in version history. Prefilled from the machine name.')
@@ -82,6 +92,7 @@ export class SyncSettingTab extends PluginSettingTab {
 					.setPlaceholder('default')
 					.setValue(settings.vaultName)
 					.onChange((value) => {
+						this.#connectionChanged = true;
 						void update({ vaultName: value.trim() });
 					}),
 			);
@@ -91,6 +102,7 @@ export class SyncSettingTab extends PluginSettingTab {
 			.addText((text) => {
 				text.inputEl.type = 'password';
 				text.setValue(this.#plugin.secretOrEmpty(secretKeys.passphrase)).onChange((value) => {
+					this.#connectionChanged = true;
 					this.#plugin.setSecret(secretKeys.passphrase, value);
 				});
 			});
@@ -189,5 +201,20 @@ export class SyncSettingTab extends PluginSettingTab {
 					void this.#plugin.requestSync();
 				}),
 		);
+	}
+
+	/**
+	 * The client, the derived keys and the vault id are all captured when the engine is
+	 * built, so editing a credential or the server address changes nothing until it is
+	 * rebuilt — previously it took a sync toggle, with no hint that it was needed. These
+	 * fields fire on every keystroke, so the rebuild waits until the tab closes rather
+	 * than reconnecting once per character.
+	 */
+	override hide(): void {
+		if (!this.#connectionChanged) {
+			return;
+		}
+		this.#connectionChanged = false;
+		void this.#plugin.reloadEngine().then(() => this.#plugin.requestSync());
 	}
 }
