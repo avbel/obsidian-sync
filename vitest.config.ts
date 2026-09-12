@@ -12,5 +12,6 @@ export default defineConfig({
 	test: {
 		include: ['packages/*/src/**/*.test.ts'],
 		environment: 'node',
+		setupFiles: ['./packages/plugin/src/testing/dom-shim.ts'],
 	},
 });

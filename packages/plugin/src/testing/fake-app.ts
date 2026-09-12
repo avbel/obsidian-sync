@@ -32,6 +32,10 @@ export class FakeApp {
 	readonly folders = new Set<string>();
 	readonly trashed: string[] = [];
 	readonly configDir = '.obsidian';
+	/** Obsidian's per-device localStorage, where the conflict list and cursor live. */
+	readonly local = new Map<string, string>();
+	/** Obsidian's secret storage, which holds the token and passphrase. */
+	readonly secrets = new Map<string, string>();
 
 	put(path: string, text: string): void {
 		this.files.set(path, { data: encode(text), mtime: 1, ctime: 1 });
@@ -112,6 +116,18 @@ export class FakeApp {
 				}
 				return toBuffer(stored.data);
 			},
+			async read(path: string) {
+				const stored = self.files.get(path);
+				if (stored === undefined) {
+					throw new Error(`no such file: ${path}`);
+				}
+				return new TextDecoder().decode(stored.data);
+			},
+			async write(path: string, text: string) {
+				self.#requireFolder(path);
+				const existing = self.files.get(path);
+				self.files.set(path, { data: encode(text), mtime: 2, ctime: existing?.ctime ?? 2 });
+			},
 			async writeBinary(path: string, data: ArrayBuffer) {
 				self.#requireFolder(path);
 				const existing = self.files.get(path);
@@ -157,6 +173,13 @@ export class FakeApp {
 			getAbstractFileByPath(path: string) {
 				return self.#tfile(path);
 			},
+			getFileByPath(path: string) {
+				return self.#tfile(path);
+			},
+			on() {
+				return {};
+			},
+			offref() {},
 			getFolderByPath(path: string) {
 				return self.folders.has(path) ? { path } : null;
 			},
@@ -191,6 +214,28 @@ export class FakeApp {
 					self.trashed.push(file.path);
 					self.files.delete(file.path);
 				},
+			},
+			workspace: {
+				getLeavesOfType() {
+					return [];
+				},
+				onLayoutReady(fn: () => void) {
+					fn();
+				},
+			},
+			secretStorage: {
+				getSecret(id: string) {
+					return self.secrets.get(id) ?? null;
+				},
+				setSecret(id: string, value: string) {
+					self.secrets.set(id, value);
+				},
+			},
+			loadLocalStorage(key: string) {
+				return self.local.get(key) ?? null;
+			},
+			saveLocalStorage(key: string, value: string) {
+				self.local.set(key, value);
 			},
 		} as unknown as App;
 	}

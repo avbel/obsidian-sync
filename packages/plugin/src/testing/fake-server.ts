@@ -1,3 +1,4 @@
+import { kdfSaltBytes } from '@obsidian-sync/protocol';
 import type { Requester, SyncRequest, SyncResponse } from '../transport/client.js';
 
 interface StoredFile {
@@ -49,6 +50,9 @@ export class FakeServer implements Requester {
 	private seq = 0;
 	private versionCounter = 0;
 	vaultId = 'test-vault';
+	vaultName = 'default';
+	/** A real kdfSaltBytes-long salt, so derivePurposeKeys works against this server. */
+	kdfSalt = Buffer.alloc(kdfSaltBytes, 3).toString('base64');
 
 	/** Files the vault currently holds, for asserting test preconditions. */
 	liveFileCount(): number {
@@ -81,6 +85,14 @@ export class FakeServer implements Requester {
 		this.requests.push(`${method} ${basePath ?? path}`);
 		const url = new URL(`http://x${path}`);
 		const parts = url.pathname.split('/').filter((part) => part.length > 0);
+
+		if (parts[1] === 'me') {
+			return this.json(200, {
+				user: 'tester',
+				vaults: [{ id: this.vaultId, name: this.vaultName, kdfSalt: this.kdfSalt }],
+				protocolVersion: 1,
+			});
+		}
 
 		// /v1/vaults/:id/(blobs|files|changes|state|stream-ticket)/...
 		if (parts[1] !== 'vaults') {
