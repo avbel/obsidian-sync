@@ -150,16 +150,15 @@ describe('two clients on one vault', () => {
 		await a.engine.pushAll();
 		await b.engine.pushAll();
 
-		expect(
-			b.conflicts.length + ((await b.vault.exists('c (conflict 2026-01-01 00-00-00).md')) ? 1 : 0),
-		).toBeGreaterThanOrEqual(0);
-		// Whichever device pushed second must retain its bytes somewhere: either merged
-		// or in a conflict copy. The invariant (§8) is that nothing is destroyed.
-		const survivingA = a.vault.getText('c.md');
-		const bHasCopyOrMerge =
-			b.vault.getText('c.md') === 'shared\nversion-A\nbase\n' || b.conflicts.length > 0;
-		expect(survivingA).toBeDefined();
-		expect(bHasCopyOrMerge).toBe(true);
+		// §8: the device that pushed second never loses its bytes. The remote version takes
+		// the file and the local edit is copied out beside it, so the user still chooses.
+		const record = b.conflicts[0];
+		if (record === undefined) {
+			throw new Error('expected the second device to record a conflict');
+		}
+		expect(a.vault.getText('c.md')).toBe('shared\nversion-A\nbase\n');
+		expect(b.vault.getText('c.md')).toBe('shared\nversion-A\nbase\n');
+		expect(b.vault.getText(record.conflictCopyPath)).toBe('shared\nversion-B\nbase\n');
 	});
 
 	test('stable content uploads no new blobs on a no-op re-push', async () => {

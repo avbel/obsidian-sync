@@ -67,6 +67,12 @@ export class VersionHistoryModal extends Modal {
 					? page
 					: { ...page, entries: [...this.#page.entries, ...page.entries] };
 		} catch (error) {
+			// Only the first page owns the pane. A failed "load older" must leave the versions
+			// already on screen alone rather than replacing all of them with one error line.
+			if (offset > 0) {
+				new Notice(`Could not load older versions: ${(error as Error).message}`);
+				return;
+			}
 			list.empty();
 			list.createDiv({ text: `Could not load history: ${(error as Error).message}` });
 			return;
@@ -102,7 +108,10 @@ export class VersionHistoryModal extends Modal {
 				row.createSpan({ cls: 'obsidian-sync-history__badge', text: 'Current' });
 			}
 			if (!entry.readable) {
-				row.createSpan({ cls: 'obsidian-sync-history__badge is-error', text: 'Unreadable' });
+				row.createSpan({
+					cls: 'obsidian-sync-history__badge is-error',
+					text: entry.unreadableReason === 'no-metadata' ? 'No metadata' : 'Unreadable',
+				});
 			}
 			row.addEventListener('click', () => void this.#select(entry));
 		}
@@ -124,19 +133,34 @@ export class VersionHistoryModal extends Modal {
 		this.#selectedBytes = undefined;
 		this.#renderList();
 		detail.empty();
-		detail.createDiv({ text: 'Loading version…' });
 
-		try {
-			this.#selectedBytes = await this.#history.read(page.fileId, entry);
-		} catch (error) {
-			detail.empty();
-			detail.createDiv({ cls: 'obsidian-sync-history__error', text: this.#explain(error) });
+		if (entry.unreadableReason !== undefined) {
+			detail.createDiv({
+				cls: 'obsidian-sync-history__error',
+				text:
+					entry.unreadableReason === 'no-metadata'
+						? 'This sync server is too old to return version metadata, so this version cannot be previewed or restored.'
+						: 'That version cannot be decrypted with the current passphrase.',
+			});
 			return;
 		}
 
-		const current = (await this.app.vault.adapter.exists(this.#path))
-			? new Uint8Array(await this.app.vault.adapter.readBinary(this.#path))
-			: undefined;
+		detail.createDiv({ text: 'Loading version…' });
+		let current: Uint8Array | undefined;
+		try {
+			this.#selectedBytes = await this.#history.read(page.fileId, entry);
+			// Inside the guard: the note can be deleted or renamed between the click and here,
+			// and an unguarded rejection leaves the pane stuck on "Loading version…" for good.
+			// Routed through the service so config-dir paths resolve the way every other read does.
+			current = await this.#history.readCurrent(this.#path);
+		} catch (error) {
+			detail.empty();
+			detail.createDiv({
+				cls: 'obsidian-sync-history__error',
+				text: this.#explain(error, 'Preview'),
+			});
+			return;
+		}
 		this.#renderDetail(buildPreview(this.#path, current, this.#selectedBytes));
 	}
 
@@ -211,11 +235,11 @@ export class VersionHistoryModal extends Modal {
 			}
 			this.close();
 		} catch (error) {
-			new Notice(this.#explain(error));
+			new Notice(this.#explain(error, 'Restore'));
 		}
 	}
 
-	#explain(error: unknown): string {
+	#explain(error: unknown, action: 'Restore' | 'Preview'): string {
 		if (error instanceof VersionContentUnavailableError) {
 			return 'That version’s content is no longer stored on the server.';
 		}
@@ -225,7 +249,7 @@ export class VersionHistoryModal extends Modal {
 		if (error instanceof StaleWriteError) {
 			return 'The note changed while restoring. Try again.';
 		}
-		return `Restore failed: ${(error as Error).message}`;
+		return `${action} failed: ${(error as Error).message}`;
 	}
 
 	override onClose(): void {

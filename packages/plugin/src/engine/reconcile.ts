@@ -12,6 +12,9 @@ export interface IndexedFileSummary {
 	versionId: string;
 }
 
+/** Share of the tracked index that may vanish from one `GET /state` before deletes are withheld. */
+export const massDeleteShare = 0.5;
+
 export interface ReconcileInput {
 	remote: RemoteFileSummary[];
 	indexed: IndexedFileSummary[];
@@ -25,7 +28,7 @@ export interface ReconcilePlan {
 	remoteDeletes: string[];
 	/** fileIds skipped because the remote plaintext exceeds the size limit. */
 	oversized: string[];
-	/** True when the delete pass was withheld because the server listed no files. */
+	/** True when the delete pass was withheld because too much of the index vanished at once. */
 	massDeleteGuarded: boolean;
 }
 
@@ -70,16 +73,18 @@ export function planReconcile(input: ReconcileInput): ReconcilePlan {
 		}
 	}
 
-	// A vault that reports itself entirely empty is far more often a wrong vault id,
-	// a restored blank database, or a truncated response than a real mass delete, and
-	// the cost of being wrong is the whole vault. Withhold and report instead — but
-	// only when several files would fall: a lone tracked file is likelier one genuine
-	// remote delete, and withholding it would wedge the republish of any local edit
-	// against the forgotten server version.
-	const massDeleteGuarded = input.remote.length === 0 && input.indexed.length > 1;
-	const remoteDeletes = massDeleteGuarded
-		? []
-		: input.indexed.filter((entry) => !remoteIds.has(entry.fileId)).map((entry) => entry.fileId);
+	const candidates = input.indexed.filter((entry) => !remoteIds.has(entry.fileId));
+	// A vault that reports most of itself missing is far more often a wrong vault id, a
+	// restored or truncated database, or a server bug than a real bulk delete, and the cost
+	// of being wrong is the whole vault. Checking the share rather than only the empty list
+	// matters because one innocuous file in the response would otherwise disarm the guard
+	// completely. Withhold and report instead — but only when several files would fall: a
+	// lone tracked file is likelier one genuine remote delete, and withholding it would
+	// wedge the republish of any local edit against the forgotten server version. A real
+	// bulk delete still arrives unguarded as explicit records on the /changes path.
+	const massDeleteGuarded =
+		input.indexed.length > 1 && candidates.length > input.indexed.length * massDeleteShare;
+	const remoteDeletes = massDeleteGuarded ? [] : candidates.map((entry) => entry.fileId);
 
 	return { pull, remoteDeletes, oversized, massDeleteGuarded };
 }

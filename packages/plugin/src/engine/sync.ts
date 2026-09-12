@@ -8,6 +8,12 @@ import type { PendingIntent, PendingQueue } from '../state/pending-queue.js';
 import { type ApiClient, ConflictError } from '../transport/client.js';
 import { classifyFailure, retryDelayMs } from './backoff.js';
 import { decodeFile, encodeFile } from './codec.js';
+import {
+	type ConflictChoice,
+	type ConflictOutcome,
+	type ConflictRecord,
+	resolveConflictInVault,
+} from './conflict.js';
 import { copyStamp, uniqueCopyPath } from './copy.js';
 import { merge3 } from './merge.js';
 import { planReconcile, type ReconcileSummary } from './reconcile.js';
@@ -15,23 +21,10 @@ import { isPathIncluded, type SelectiveSyncOptions } from './selective.js';
 import { isTextPath } from './text.js';
 import { StaleWriteError, type VaultAdapter, type VaultFile } from './vault.js';
 
+export type { ConflictChoice, ConflictOutcome, ConflictRecord } from './conflict.js';
 export type { ReconcileSummary } from './reconcile.js';
 
 export type EngineStatus = 'idle' | 'syncing' | 'conflict' | 'error';
-
-export interface ConflictRecord {
-	path: string;
-	conflictCopyPath: string;
-}
-
-export type ConflictChoice = 'mine' | 'remote' | 'both';
-
-/**
- * `missing-copy`: the user deleted or renamed the copy themselves — the record is
- * stale and should be dropped. `stale`: the note changed between reading it and
- * writing the resolution, so nothing was written and the user must choose again.
- */
-export type ConflictOutcome = 'resolved' | 'missing-copy' | 'stale';
 
 export interface SyncEngineDeps {
 	vaultId: string;
@@ -413,7 +406,12 @@ export class SyncEngine {
 			// The server reads its sequence before listing files, so anything landing
 			// mid-read is re-delivered rather than skipped and this snapshot's seq is a
 			// safe cursor. Raised only: a pull already further ahead must not replay.
-			local.setCursor(Math.max(local.getCursor(), snapshot.seq));
+			// Not raised at all when the plan skipped an oversized file: the incremental
+			// path has no size limit and will deliver it, but only while the cursor still
+			// sits behind it, so adopting the seq here would strand that file forever.
+			if (plan.oversized.length === 0) {
+				local.setCursor(Math.max(local.getCursor(), snapshot.seq));
+			}
 
 			if (!this.#retired) {
 				await index.save();
@@ -575,41 +573,18 @@ export class SyncEngine {
 	}
 
 	/**
-	 * Apply a user's choice to an already-copied conflict (§8). Both sides are plain
-	 * vault files by this point, so this touches no network and no server version.
-	 *
-	 * `mine` deliberately leaves the index recording the remote version: that is what
-	 * makes the restored bytes read as dirty, so the next push commits them against the
-	 * current head instead of needing a second commit path here. The path is queued
-	 * explicitly because an ordinary sync drains the queue rather than rescanning, and a
-	 * config-dir path raises no vault event for the watcher to pick up either.
+	 * Resolve a conflict and, for `mine`, queue the restored bytes for push. The vault
+	 * half is `resolveConflictInVault`, which the plugin also calls directly when sync is
+	 * switched off and there is no engine; the queueing is the part only an engine can do,
+	 * because an ordinary sync drains the queue rather than rescanning, and a config-dir
+	 * path raises no vault event for the watcher to pick up either.
 	 */
 	async resolveConflict(record: ConflictRecord, choice: ConflictChoice): Promise<ConflictOutcome> {
-		const { vault, queue } = this.#deps;
-		if (choice === 'both') {
-			return 'resolved';
+		const outcome = await resolveConflictInVault(this.#deps.vault, record, choice);
+		if (outcome === 'resolved' && choice === 'mine') {
+			this.#deps.queue.enqueue(record.path, 'upsert');
 		}
-		if (!(await vault.exists(record.conflictCopyPath))) {
-			return 'missing-copy';
-		}
-		if (choice === 'remote') {
-			await vault.trash(record.conflictCopyPath);
-			return 'resolved';
-		}
-
-		const mine = await vault.read(record.conflictCopyPath);
-		const current = (await vault.exists(record.path)) ? await vault.read(record.path) : undefined;
-		try {
-			await vault.write(record.path, mine, { expected: current });
-		} catch (error) {
-			if (error instanceof StaleWriteError) {
-				return 'stale';
-			}
-			throw error;
-		}
-		await vault.trash(record.conflictCopyPath);
-		queue.enqueue(record.path, 'upsert');
-		return 'resolved';
+		return outcome;
 	}
 }
 

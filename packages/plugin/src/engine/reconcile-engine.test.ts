@@ -179,3 +179,24 @@ describe('full reconcile', () => {
 		expect(server.requests.filter((entry) => entry.endsWith('/state'))).toHaveLength(1);
 	});
 });
+
+describe('a file this device will not pull', () => {
+	// Reconcile skips an oversized file but the incremental path has no size limit, so the
+	// cursor is the only thing keeping that change reachable. Adopting the snapshot seq
+	// here used to strand the file on this device until someone edited it again elsewhere.
+	test('leaves the cursor behind the change that would deliver it', async () => {
+		const seed = await device('seed');
+		seed.vault.putText('big.md', 'x'.repeat(2000));
+		await seed.engine.pushAll();
+
+		const laptop = await device('laptop', {
+			selective: { ...fullSelective, maxFileBytes: 100 },
+		});
+		const summary = await laptop.engine.reconcile();
+		expect(summary.skippedOversize).toBe(1);
+		expect(await laptop.vault.exists('big.md')).toBe(false);
+
+		await laptop.engine.pullAll();
+		expect(laptop.vault.getText('big.md')).toBe('x'.repeat(2000));
+	});
+});

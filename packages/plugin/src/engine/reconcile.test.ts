@@ -98,6 +98,37 @@ describe('planReconcile', () => {
 		expect(plan.pull).toEqual([]);
 	});
 
+	function ids(count: number): { fileId: string; versionId: string }[] {
+		return Array.from({ length: count }, (_unused, position) => ({
+			fileId: `f${position + 1}`,
+			versionId: 'v1',
+		}));
+	}
+
+	// One innocuous file in the response is all a half-restored or hostile server needs to
+	// disarm a guard that only ever checked for an entirely empty listing.
+	test('a listing that drops most of the index withholds every delete', () => {
+		const plan = planReconcile({
+			remote: [{ fileId: 'f1', headVersion: 'v1', size: 10 }],
+			indexed: ids(10),
+			maxFileBytes: bigEnough,
+		});
+
+		expect(plan.massDeleteGuarded).toBe(true);
+		expect(plan.remoteDeletes).toEqual([]);
+	});
+
+	test('a listing that drops a minority still applies those deletes', () => {
+		const plan = planReconcile({
+			remote: ids(8).map((entry) => ({ fileId: entry.fileId, headVersion: 'v1', size: 10 })),
+			indexed: ids(10),
+			maxFileBytes: bigEnough,
+		});
+
+		expect(plan.massDeleteGuarded).toBe(false);
+		expect(plan.remoteDeletes).toEqual(['f9', 'f10']);
+	});
+
 	test('deleting the last file of many is not treated as a mass delete', () => {
 		const plan = planReconcile({
 			remote: [{ fileId: 'f1', headVersion: 'v1', size: 10 }],

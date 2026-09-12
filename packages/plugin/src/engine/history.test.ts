@@ -30,7 +30,10 @@ async function device(deviceId: string, deviceLabel: string): Promise<HistoryDev
 		...built,
 		history: new VersionHistoryService({
 			...built.deps,
-			enqueue: (path) => built.queue.enqueue(path, 'upsert'),
+			enqueue: async (path) => {
+				built.queue.enqueue(path, 'upsert');
+				await built.queue.save();
+			},
 			// `fullScan: false` is what an ordinary sync does; the no-arg default rescans the
 			// whole vault and would hide a restore that forgot to queue its own path.
 			requestSync: () => built.engine.pushAll({ fullScan: false }),
@@ -192,5 +195,49 @@ describe('VersionHistoryService', () => {
 		await expect(
 			local.history.restore({ path: 'note.md', fileId, entry: unreadable }),
 		).rejects.toBeInstanceOf(VersionUnreadableError);
+	});
+});
+
+describe('degraded servers and failed syncs', () => {
+	test('a version returned without metadata is not blamed on the passphrase', async () => {
+		const local = await device('laptop', 'Laptop');
+		local.vault.putText('note.md', 'one\n');
+		await local.engine.pushAll();
+
+		// A server predating the version-history release returns no meta field at all.
+		for (const version of server.versions.values()) {
+			Reflect.deleteProperty(version, 'metaBlob');
+		}
+
+		const entry = entryAt((await local.history.list('note.md')).entries, 0);
+		expect(entry.readable).toBe(false);
+		expect(entry.unreadableReason).toBe('no-metadata');
+	});
+
+	test('a restore that lands is not reported as failed when the sync behind it fails', async () => {
+		const local = await device('laptop', 'Laptop');
+		local.vault.putText('note.md', 'one\n');
+		await local.engine.pushAll();
+		local.vault.putText('note.md', 'two\n');
+		await local.engine.pushAll();
+
+		const offline = new VersionHistoryService({
+			...local.deps,
+			enqueue: async (path) => {
+				local.queue.enqueue(path, 'upsert');
+				await local.queue.save();
+			},
+			requestSync: () => Promise.reject(new Error('the sync server could not be reached')),
+		});
+
+		const page = await offline.list('note.md');
+		const oldest = entryAt(page.entries, 1);
+		await expect(
+			offline.restore({ path: 'note.md', fileId: page.fileId, entry: oldest }),
+		).resolves.toEqual({ status: 'restored' });
+
+		expect(local.vault.getText('note.md')).toBe('one\n');
+		// Durably queued, so the push it could not make is delayed rather than lost.
+		expect(local.queue.all().map((item) => item.path)).toEqual(['note.md']);
 	});
 });

@@ -10,6 +10,7 @@ import {
 	TFile,
 } from 'obsidian';
 import { derivePurposeKeys, type PurposeKeys } from './crypto/keys.js';
+import { resolveConflictInVault } from './engine/conflict.js';
 import { VersionHistoryService } from './engine/history.js';
 import { describeReconcile } from './engine/reconcile.js';
 import { pluginId } from './engine/selective.js';
@@ -54,6 +55,20 @@ const minimumApiVersion = '1.13.2';
 const hideCoreSyncClass = 'obsidian-sync-hide-core-sync';
 const syncWatchdogMs = 5 * 60 * 1000;
 const minimumWakeMs = 1_000;
+
+type ReconcileRequest = 'silent' | 'announce' | undefined;
+
+/**
+ * Announce always wins. A user-initiated reconcile must report what it did, whether the
+ * silent startup one is still queued ahead of it or was the run that just failed and is
+ * being put back — either way, restoring the older value would swallow the report.
+ */
+function mergeReconcile(current: ReconcileRequest, incoming: ReconcileRequest): ReconcileRequest {
+	if (current === 'announce' || incoming === 'announce') {
+		return 'announce';
+	}
+	return current ?? incoming;
+}
 const foregroundThrottleMs = 1000;
 
 export default class SyncPlugin extends Plugin {
@@ -83,7 +98,7 @@ export default class SyncPlugin extends Plugin {
 	#retryTimer: number | null = null;
 	#syncing: Promise<void> | null = null;
 	#resyncRequested = false;
-	#reconcileRequested: 'silent' | 'announce' | undefined;
+	#reconcileRequested: ReconcileRequest;
 
 	override async onload(): Promise<void> {
 		if (!requireApiVersion(minimumApiVersion)) {
@@ -345,7 +360,10 @@ export default class SyncPlugin extends Plugin {
 			vault: vaultAdapter,
 			index,
 			deviceId,
-			enqueue: (path) => queue.enqueue(path, 'upsert'),
+			enqueue: async (path) => {
+				queue.enqueue(path, 'upsert');
+				await queue.save();
+			},
 			requestSync: () => this.requestSync(),
 		});
 		this.vaultIdForNudge = vault.id;
@@ -471,7 +489,7 @@ export default class SyncPlugin extends Plugin {
 				}
 				if (summary.massDeleteGuarded) {
 					new Notice(
-						'Obsidian Sync: the server listed no files, so nothing was removed locally. Check the vault name and token.',
+						'Obsidian Sync: the server listed too little of this vault, so nothing was removed locally. Check the vault name and token.',
 					);
 				}
 			}
@@ -479,8 +497,9 @@ export default class SyncPlugin extends Plugin {
 			this.lastSyncAt = Date.now();
 			this.#setStatus('idle');
 		} catch (error) {
-			// A reconcile that failed is still owed; the next run picks it up.
-			this.#reconcileRequested = reconciling;
+			// A reconcile that failed is still owed; the next run picks it up. Merged rather
+			// than assigned, so an announce queued while this run was failing survives.
+			this.#reconcileRequested = mergeReconcile(this.#reconcileRequested, reconciling);
 			this.#setStatus('error');
 			this.#logError(error);
 		} finally {
@@ -526,11 +545,10 @@ export default class SyncPlugin extends Plugin {
 	 * is what makes "absent from the snapshot" mean "deleted remotely".
 	 */
 	async reconcile(options: { announce?: boolean } = {}): Promise<void> {
-		// A user-initiated reconcile arriving while a silent startup one is queued must
-		// still report what it did, so announce never downgrades to silent.
-		if (this.#reconcileRequested !== 'announce') {
-			this.#reconcileRequested = (options.announce ?? true) ? 'announce' : 'silent';
-		}
+		this.#reconcileRequested = mergeReconcile(
+			this.#reconcileRequested,
+			(options.announce ?? true) ? 'announce' : 'silent',
+		);
 		await this.requestSync();
 	}
 
@@ -547,17 +565,20 @@ export default class SyncPlugin extends Plugin {
 	}
 
 	async resolveConflict(record: ConflictRecord, choice: ConflictChoice): Promise<void> {
-		if (this.#engine === null) {
-			new Notice('Sync is not running, so this conflict cannot be resolved yet.');
-			return;
-		}
 		// A resolution writes the same file a running sync may be mid-apply on.
 		if (this.#syncing !== null) {
 			await this.#syncing;
 		}
 
 		try {
-			const outcome = await this.#engine.resolveConflict(record, choice);
+			// Resolvable with sync switched off, which is exactly when the pruned list still
+			// shows copies left behind by a sync that is no longer running. The vault half needs
+			// no engine; only queueing the `mine` republish does, and there is nothing to
+			// republish to until sync is back on, where the startup scan finds the file dirty.
+			const outcome =
+				this.#engine === null
+					? await resolveConflictInVault(createVaultAdapter(this.app), record, choice)
+					: await this.#engine.resolveConflict(record, choice);
 			if (outcome === 'stale') {
 				new Notice(`${record.path} changed just now — open it and resolve again.`);
 				return;
@@ -570,7 +591,7 @@ export default class SyncPlugin extends Plugin {
 			}
 			if (outcome === 'missing-copy') {
 				new Notice(`The conflict copy for ${record.path} is gone; nothing to resolve.`);
-			} else if (choice === 'mine') {
+			} else if (choice === 'mine' && this.#engine !== null) {
 				void this.requestSync();
 			}
 		} catch (error) {
@@ -667,7 +688,6 @@ export default class SyncPlugin extends Plugin {
 		// here would let the next nudge start a second pass while this one is still going.
 		this.#engine?.retire();
 		this.#resyncRequested = false;
-		this.#reconcileRequested = undefined;
 		this.#watcher?.stop();
 		this.#nudge = null;
 		this.#watcher = null;

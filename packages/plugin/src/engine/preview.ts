@@ -1,4 +1,4 @@
-import { bytesToText } from '../crypto/encoding.js';
+import { bytesToText, sameBytes } from '../crypto/encoding.js';
 import { type DiffRow, diffLines } from './merge.js';
 import { isTextPath } from './text.js';
 
@@ -21,10 +21,6 @@ export type VersionPreview =
 			currentBytes: number | undefined;
 			versionBytes: number;
 	  };
-
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-	return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
-}
 
 function countLines(text: string): number {
 	let lines = 1;

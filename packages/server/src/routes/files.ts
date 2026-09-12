@@ -29,15 +29,23 @@ interface VaultParams {
 const versionListDefaultLimit = 50;
 const versionListMaxLimit = 200;
 
-function parseWindow(query: { limit?: string; offset?: string }): VersionWindow {
+/**
+ * Exported for its own tests: at the route level a clamp is invisible unless the vault
+ * holds more versions than the maximum, so nothing there can prove the bound.
+ *
+ * `isSafeInteger` rather than `isInteger`, because `Number.isInteger(1e20)` is true and
+ * that value reaches the driver as a bind parameter it rejects outright, turning a
+ * sanitised query string into a 500 carrying the driver's own message.
+ */
+export function parseWindow(query: { limit?: string; offset?: string }): VersionWindow {
 	const limit = Number(query.limit ?? versionListDefaultLimit);
 	const offset = Number(query.offset ?? 0);
 	return {
 		limit:
-			Number.isInteger(limit) && limit > 0
+			Number.isSafeInteger(limit) && limit > 0
 				? Math.min(limit, versionListMaxLimit)
 				: versionListDefaultLimit,
-		offset: Number.isInteger(offset) && offset >= 0 ? offset : 0,
+		offset: Number.isSafeInteger(offset) && offset >= 0 ? offset : 0,
 	};
 }
 

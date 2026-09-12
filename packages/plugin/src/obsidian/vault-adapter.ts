@@ -1,4 +1,5 @@
 import { type App, normalizePath, TFile } from 'obsidian';
+import { sameBytes } from '../crypto/encoding.js';
 import {
 	StaleWriteError,
 	type VaultAdapter,
@@ -22,13 +23,6 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 	const buffer = new ArrayBuffer(data.byteLength);
 	new Uint8Array(buffer).set(data);
 	return buffer;
-}
-
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-	if (left.byteLength !== right.byteLength) {
-		return false;
-	}
-	return left.every((byte, index) => byte === right[index]);
 }
 
 /**

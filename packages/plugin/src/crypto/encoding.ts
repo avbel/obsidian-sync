@@ -30,6 +30,13 @@ export function bytesToText(bytes: Uint8Array): string {
 	return new TextDecoder().decode(bytes);
 }
 
+export function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+	if (left.byteLength !== right.byteLength) {
+		return false;
+	}
+	return left.every((byte, index) => byte === right[index]);
+}
+
 export function concatBytes(parts: Uint8Array[]): Uint8Array {
 	const total = parts.reduce((sum, part) => sum + part.length, 0);
 	const result = new Uint8Array(total);

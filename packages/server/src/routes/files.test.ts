@@ -12,6 +12,7 @@ import { closeDatabase, openDatabase } from '../db/database.js';
 import { SerialWriter } from '../db/writer.js';
 import { TicketStore } from '../tickets.js';
 import { buildUserRegistry } from '../users.js';
+import { parseWindow } from './files.js';
 
 const aliceToken = 'a'.repeat(40);
 const bobToken = 'b'.repeat(40);
@@ -99,7 +100,7 @@ describe('GET /v1/vaults/:vaultId/files/:fileId/versions', () => {
 		expect(response.statusCode).toBe(404);
 	});
 
-	test('clamps an oversized limit instead of returning everything', async () => {
+	test('accepts an oversized limit rather than rejecting the request', async () => {
 		await commitVersion(vaultId, 'bWV0YQ==');
 		const response = await app.inject({
 			method: 'GET',
@@ -159,5 +160,27 @@ describe('GET /v1/vaults/:vaultId/files/:fileId/versions', () => {
 		});
 
 		expect((response.json() as VersionsResponse).versions).toEqual([]);
+	});
+});
+
+describe('parseWindow', () => {
+	test('clamps a limit to the maximum and defaults a junk one', () => {
+		expect(parseWindow({ limit: '100000' }).limit).toBe(200);
+		expect(parseWindow({ limit: '10' }).limit).toBe(10);
+		expect(parseWindow({}).limit).toBe(50);
+		expect(parseWindow({ limit: 'abc' }).limit).toBe(50);
+		expect(parseWindow({ limit: '0' }).limit).toBe(50);
+		expect(parseWindow({ limit: '-5' }).limit).toBe(50);
+	});
+
+	// 1e20 passes Number.isInteger, so an earlier guard let it through to the driver,
+	// which rejects the bind parameter and turns a sanitised query into a 500.
+	test('rejects an offset the driver could not bind', () => {
+		expect(parseWindow({ offset: '1e20' }).offset).toBe(0);
+		expect(parseWindow({ offset: String(Number.MAX_SAFE_INTEGER) }).offset).toBe(
+			Number.MAX_SAFE_INTEGER,
+		);
+		expect(parseWindow({ offset: '-5' }).offset).toBe(0);
+		expect(parseWindow({ offset: '7' }).offset).toBe(7);
 	});
 });
