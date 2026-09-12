@@ -40,4 +40,23 @@ describe('compress', () => {
 	test('reports support, so an old WebView degrades instead of throwing', () => {
 		expect(typeof isCompressionSupported()).toBe('boolean');
 	});
+
+	// iOS before 16.4 has no CompressionStream. Such a device must keep syncing, storing
+	// its files as-is, rather than throwing on every push.
+	test('declines rather than throwing where the platform has no CompressionStream', async () => {
+		const real = globalThis.CompressionStream;
+		Object.defineProperty(globalThis, 'CompressionStream', {
+			value: undefined,
+			configurable: true,
+		});
+		try {
+			expect(isCompressionSupported()).toBe(false);
+			expect(await compress(textToBytes('prose '.repeat(500)))).toBeUndefined();
+		} finally {
+			Object.defineProperty(globalThis, 'CompressionStream', {
+				value: real,
+				configurable: true,
+			});
+		}
+	});
 });

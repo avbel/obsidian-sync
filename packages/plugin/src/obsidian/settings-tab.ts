@@ -150,6 +150,16 @@ export class SyncSettingTab extends PluginSettingTab {
 				void update({ syncOnStartup: value });
 			}),
 		);
+		new Setting(containerEl)
+			.setName('Compress uploads')
+			.setDesc(
+				'Compresses note contents before encrypting them, to use less mobile data. Update every device first: one running an older version will read a compressed note as gibberish. Applies to versions committed from now on.',
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(settings.compressUploads).onChange((value) => {
+					void update({ compressUploads: value });
+				}),
+			);
 
 		new Setting(containerEl)
 			.setName("Hide Obsidian's own sync icon")

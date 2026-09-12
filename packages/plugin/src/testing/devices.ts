@@ -45,6 +45,7 @@ export interface DeviceOverrides {
 	/** Reuse durable state, so a rebuilt device retains index, bases, and queue. */
 	storage?: MemoryStorage;
 	selective?: SelectiveSyncOptions;
+	compressUploads?: boolean;
 }
 
 export interface Device {
@@ -84,6 +85,7 @@ export async function makeDevice(
 		local,
 		queue,
 		selective: overrides.selective ?? fullSelective,
+		compressUploads: overrides.compressUploads ?? false,
 		deviceId,
 		deviceLabel: deviceId,
 		onConflict: (conflict) => conflicts.push(conflict),

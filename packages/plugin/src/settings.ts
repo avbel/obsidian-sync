@@ -12,6 +12,8 @@ export interface PluginSettings {
 	longPollWaitSeconds: number;
 	debounceMs: number;
 	syncOnStartup: boolean;
+	/** Compress file contents before encrypting them. Off until every device can read them. */
+	compressUploads: boolean;
 	hideCoreSyncIndicator: boolean;
 	enabled: boolean;
 	chunkBytes: number;
@@ -30,6 +32,7 @@ export const defaultSettings: PluginSettings = {
 	longPollWaitSeconds: 25,
 	debounceMs: 2000,
 	syncOnStartup: true,
+	compressUploads: false,
 	hideCoreSyncIndicator: false,
 	enabled: false,
 	chunkBytes: defaultChunkBytes,

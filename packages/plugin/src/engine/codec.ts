@@ -1,5 +1,5 @@
 import { splitChunks } from '../crypto/chunk.js';
-import { decompress } from '../crypto/compress.js';
+import { compress, decompress } from '../crypto/compress.js';
 import { blobAddress, decryptChunkBlob, encryptChunkBlob } from '../crypto/content.js';
 import { hashBytes } from '../crypto/encoding.js';
 import { computeFileId, decryptPath, encryptPath } from '../crypto/identity.js';
@@ -28,6 +28,8 @@ export interface EncodeFileOptions {
 	ctime: number;
 	mime: string;
 	deviceLabel: string;
+	/** Try compressing before chunking. The result is kept only if it is smaller. */
+	compress: boolean;
 }
 
 /**
@@ -43,8 +45,14 @@ export async function encodeFile(
 	const fileId = await computeFileId(keys.nameMacKey, options.path);
 	const encryptedPath = await encryptPath(keys.pathCryptoKey, options.path);
 
+	const packed = options.compress ? await compress(options.data) : undefined;
+	// Chunk and encrypt whatever we are actually storing, but keep `size` below as the
+	// plaintext length: it is what maxFileBytes is compared against, and a limit the
+	// user set must not change meaning because a file happened to compress well.
+	const body = packed ?? options.data;
+
 	const chunks: EncodedChunk[] = [];
-	for (const chunk of splitChunks(options.data)) {
+	for (const chunk of splitChunks(body)) {
 		chunks.push({
 			address: await blobAddress(keys.contentMacKey, chunk),
 			blob: await encryptChunkBlob(keys.contentCryptoKey, keys.contentMacKey, chunk),
@@ -59,6 +67,7 @@ export async function encodeFile(
 		size: options.data.length,
 		chunks: chunks.map((chunk) => chunk.address),
 		deviceLabel: options.deviceLabel,
+		...(packed === undefined ? {} : { compression: 'deflate-raw' as const }),
 	};
 
 	return {

@@ -379,6 +379,7 @@ export default class SyncPlugin extends Plugin {
 			local,
 			queue,
 			selective: toSelectiveSyncOptions(this.settings),
+			compressUploads: this.settings.compressUploads,
 			deviceId,
 			deviceLabel: this.settings.deviceLabel,
 			onStatus: (status) => this.#setStatus(status),
@@ -576,6 +577,7 @@ export default class SyncPlugin extends Plugin {
 		this.#applyCoreSyncVisibility();
 		this.#engine?.updateSelective(toSelectiveSyncOptions(this.settings));
 		this.#engine?.updateDeviceLabel(this.settings.deviceLabel);
+		this.#engine?.updateCompression(this.settings.compressUploads);
 		this.#watcher?.setDebounce(this.settings.debounceMs);
 	}
 

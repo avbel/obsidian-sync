@@ -36,6 +36,7 @@ export interface SyncEngineDeps {
 	local: LocalState;
 	queue: PendingQueue;
 	selective: SelectiveSyncOptions;
+	compressUploads: boolean;
 	deviceId: string;
 	deviceLabel: string;
 	onStatus?: (status: EngineStatus) => void;
@@ -67,6 +68,7 @@ interface PushOutcome {
 export class SyncEngine {
 	readonly #deps: SyncEngineDeps;
 	#selective: SelectiveSyncOptions;
+	#compressUploads: boolean;
 	#deviceLabel: string;
 	#sawVault = false;
 	#retired = false;
@@ -74,6 +76,7 @@ export class SyncEngine {
 	constructor(deps: SyncEngineDeps) {
 		this.#deps = deps;
 		this.#selective = deps.selective;
+		this.#compressUploads = deps.compressUploads;
 		this.#deviceLabel = deps.deviceLabel;
 	}
 
@@ -83,6 +86,11 @@ export class SyncEngine {
 	}
 
 	/** Renaming a device applies to versions committed from now on, never retroactively. */
+	/** Turning compression on applies to versions committed from now on, never retroactively. */
+	updateCompression(compressUploads: boolean): void {
+		this.#compressUploads = compressUploads;
+	}
+
 	updateDeviceLabel(deviceLabel: string): void {
 		this.#deviceLabel = deviceLabel;
 	}
@@ -237,6 +245,7 @@ export class SyncEngine {
 			ctime: file.ctime,
 			mime: mimeFor(file.path),
 			deviceLabel: this.#deviceLabel,
+			compress: this.#compressUploads,
 		});
 
 		const missing = (

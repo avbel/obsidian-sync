@@ -167,9 +167,9 @@ Leave `encodeFile` alone in this task.
 
 ## Task 4: Ship phase 1
 
-- [ ] **Step 1: Release a version whose only compression change is the ability to read it**
+- [x] **Step 1: Release a version whose only compression change is the ability to read it**
 
-- [ ] **Step 2: Update every device, and verify**
+- [x] **Step 2: Update every device, and verify**
 
 Every device must report the phase-1 version or newer in *Settings → Community plugins*. Do not continue to Task 5 until that is true of all of them. A device left behind will write compressed bytes into notes as plaintext once phase 2 is enabled anywhere.
 
@@ -177,19 +177,19 @@ Every device must report the phase-1 version or newer in *Settings → Community
 
 ## Task 5: Compress on the write path, behind a setting
 
-- [ ] **Step 1: Add the setting**
+- [x] **Step 1: Add the setting**
 
 `PluginSettings.compressUploads: boolean`, default **false**, in `packages/plugin/src/settings.ts`. In the settings tab, under **Sync**:
 
 > **Compress uploads** — Compress note contents before encrypting them. Saves mobile data. Every device must be updated first: an older device will read compressed notes as gibberish.
 
-- [ ] **Step 2: Write the failing engine test**
+- [x] **Step 2: Write the failing engine test**
 
 In `packages/plugin/src/engine/queue-engine.test.ts` or a new `compression-engine.test.ts`: a device with compression on pushes a compressible note; a second device with compression **off** pulls it and sees the original text. That asserts the read path is independent of the writer's setting, which is the whole compatibility story.
 
 Add a second test: a device with compression on pushes incompressible bytes, and the committed meta has no `compression` field — the store-if-smaller rule holds end to end.
 
-- [ ] **Step 3: Thread the flag through**
+- [x] **Step 3: Thread the flag through**
 
 `EncodeFileOptions` grows `compress: boolean`. In `encodeFile`, before `splitChunks`:
 
@@ -202,7 +202,7 @@ Chunk and encrypt `body`; set `compression: packed === undefined ? undefined : '
 
 `SyncEngineDeps` grows the flag alongside `selective`, and `updateSelective` (or a sibling) carries a settings change into a running engine the way the other live settings do.
 
-- [ ] **Step 4: Run the whole suite, `pnpm build`, and commit**
+- [x] **Step 4: Run the whole suite, `pnpm build`, and commit**
 
 - [ ] **Step 5: Verify by hand across two real devices**
 
@@ -229,11 +229,11 @@ If it does not decode automatically, stop — do not hand-roll decoding in the t
 
 ## Done when
 
-- [ ] A compressible note round-trips between a compressing device and a non-compressing one with byte-identical content.
-- [ ] An incompressible file is stored as-is, with no `compression` field in its meta.
-- [ ] Versions written before this feature still open, on a build that has it and on one that does not.
-- [ ] `size` on the wire is still the plaintext length, so `maxFileBytes` means what the user set.
-- [ ] A device without `CompressionStream` syncs normally, uncompressed.
-- [ ] The server has gained no new ability to distinguish or inspect anything.
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` all pass.
+- [x] A compressible note round-trips between a compressing device and a non-compressing one with byte-identical content.
+- [x] An incompressible file is stored as-is, with no `compression` field in its meta.
+- [x] Versions written before this feature still open, on a build that has it and on one that does not.
+- [x] `size` on the wire is still the plaintext length, so `maxFileBytes` means what the user set.
+- [x] A device without `CompressionStream` syncs normally, uncompressed.
+- [x] The server has gained no new ability to distinguish or inspect anything.
+- [x] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` all pass.
 - [ ] Measured saving recorded in the README against a real note-heavy vault, not the test vault above.
