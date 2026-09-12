@@ -10,6 +10,7 @@ import {
 	TFile,
 } from 'obsidian';
 import { derivePurposeKeys, type PurposeKeys } from './crypto/keys.js';
+import { retryDelayMs } from './engine/backoff.js';
 import { resolveConflictInVault } from './engine/conflict.js';
 import { VersionHistoryService } from './engine/history.js';
 import { describeReconcile } from './engine/reconcile.js';
@@ -96,6 +97,8 @@ export default class SyncPlugin extends Plugin {
 	#statusBarItem: HTMLElement | null = null;
 	#lastForegroundAt = 0;
 	#retryTimer: number | null = null;
+	#engineRetryTimer: number | null = null;
+	#engineRetryAttempts = 0;
 	#syncing: Promise<void> | null = null;
 	#resyncRequested = false;
 	#reconcileRequested: ReconcileRequest;
@@ -284,6 +287,7 @@ export default class SyncPlugin extends Plugin {
 		}
 		try {
 			await this.#buildEngine(token, passphrase);
+			this.#engineRetryAttempts = 0;
 			this.#startNudge();
 			this.#startWatcher();
 			if (this.settings.syncOnStartup) {
@@ -299,7 +303,36 @@ export default class SyncPlugin extends Plugin {
 		} catch (error) {
 			this.#setStatus('error');
 			new Notice(`Obsidian Sync failed to start: ${(error as Error).message}`);
+			this.#scheduleEngineRetry();
 		}
+	}
+
+	/**
+	 * Retry building the engine after it failed. Nothing else will: a failed build leaves
+	 * no queue to schedule a push retry from, no watcher and no nudge, so a server that
+	 * happened to be down when Obsidian started would otherwise leave sync dead for the
+	 * whole session — with edits piling up in a queue nobody drains and only the status
+	 * icon to show for it. Backs off on the same schedule the push queue uses.
+	 */
+	#scheduleEngineRetry(): void {
+		if (this.#engineRetryTimer !== null) {
+			window.clearTimeout(this.#engineRetryTimer);
+		}
+		this.#engineRetryAttempts += 1;
+		this.#engineRetryTimer = window.setTimeout(
+			() => {
+				this.#engineRetryTimer = null;
+				if (!this.settings.enabled) {
+					return;
+				}
+				void this.reloadEngine().then(() => {
+					if (this.#engine !== null) {
+						void this.requestSync();
+					}
+				});
+			},
+			Math.max(minimumWakeMs, retryDelayMs(this.#engineRetryAttempts)),
+		);
 	}
 
 	async #buildEngine(token: string, passphrase: string): Promise<void> {
@@ -688,6 +721,10 @@ export default class SyncPlugin extends Plugin {
 
 	#stopEngine(): void {
 		this.#nudge?.stop();
+		if (this.#engineRetryTimer !== null) {
+			window.clearTimeout(this.#engineRetryTimer);
+			this.#engineRetryTimer = null;
+		}
 		if (this.#retryTimer !== null) {
 			window.clearTimeout(this.#retryTimer);
 			this.#retryTimer = null;
