@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { TimeoutError } from './client.js';
+import { OfflineError, TimeoutError } from './client.js';
 import { createObsidianRequester } from './http.js';
 
 const response = {
@@ -22,6 +22,21 @@ describe('createObsidianRequester', () => {
 
 		await expect(requester.request({ path: '/v1/me', method: 'GET' })).rejects.toThrow(
 			TimeoutError,
+		);
+	});
+
+	// requestUrl reports DNS failure, a refused connection and a dropped link alike as a
+	// bare Error; the engine must not confuse those with a bug in its own request building.
+	test('wraps a transport-level rejection as OfflineError', async () => {
+		const requester = createObsidianRequester({
+			serverUrl: 'http://example.invalid',
+			token: 'token',
+			requestUrl: () => Promise.reject(new Error('net::ERR_NAME_NOT_RESOLVED')),
+			timeoutMs: 1000,
+		});
+
+		await expect(requester.request({ path: '/v1/me', method: 'GET' })).rejects.toThrow(
+			OfflineError,
 		);
 	});
 

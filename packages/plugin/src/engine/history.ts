@@ -56,6 +56,8 @@ export interface VersionHistoryDeps {
 	vault: VaultAdapter;
 	index: FileIndex;
 	deviceId: string;
+	/** Queues the restored path: an ordinary sync drains the queue and never rescans. */
+	enqueue: (path: string) => void;
 	/** Pushes restored bytes; injected so the service never owns the sync loop. */
 	requestSync: () => Promise<void>;
 }
@@ -148,6 +150,7 @@ export class VersionHistoryService {
 		}
 
 		await vault.write(request.path, bytes, { mtime: Date.now(), expected: current });
+		this.#deps.enqueue(request.path);
 		await this.#deps.requestSync();
 		return { status: 'restored' };
 	}
@@ -162,6 +165,7 @@ export class VersionHistoryService {
 			`restored ${copyStamp(request.entry.createdAt)}`,
 		);
 		await vault.write(copyPath, bytes);
+		this.#deps.enqueue(copyPath);
 		await this.#deps.requestSync();
 		return { copyPath };
 	}

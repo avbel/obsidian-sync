@@ -34,6 +34,12 @@ export interface WriteOptions {
  */
 export interface VaultAdapter {
 	list(): Promise<VaultFile[]>;
+	/**
+	 * The config directory alone. Obsidian's file cache never holds these paths, so no
+	 * vault event ever fires for them and a scan is the only way a themes, snippets or
+	 * plugin-settings change is ever noticed.
+	 */
+	listConfig(): Promise<VaultFile[]>;
 	exists(path: string): Promise<boolean>;
 	/** One path's stat, so a queued push costs no whole-vault listing. */
 	stat(path: string): Promise<VaultFile | undefined>;

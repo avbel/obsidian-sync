@@ -1,5 +1,6 @@
 import {
 	DiskFullError,
+	OfflineError,
 	ServerError,
 	TimeoutError,
 	UnauthorizedError,
@@ -25,7 +26,7 @@ export function classifyFailure(error: unknown): FailureKind {
 	if (error instanceof DiskFullError) {
 		return 'pause';
 	}
-	if (error instanceof TimeoutError) {
+	if (error instanceof TimeoutError || error instanceof OfflineError) {
 		return 'retry-all';
 	}
 	if (error instanceof ServerError) {

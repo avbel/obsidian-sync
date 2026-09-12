@@ -77,6 +77,20 @@ export class TimeoutError extends Error {
 	}
 }
 
+/**
+ * The request never reached the server: DNS failure, refused connection, a link
+ * dropped mid-flight. `requestUrl` reports every one of these as a bare `Error`,
+ * which is indistinguishable from a bug in our own request building — and the two
+ * need opposite retry policies, so the transport wraps them here (§9).
+ */
+export class OfflineError extends Error {
+	constructor(cause: unknown) {
+		super('the sync server could not be reached');
+		this.name = 'OfflineError';
+		this.cause = cause;
+	}
+}
+
 /** 507: server disk full — the client pauses uploads (§9). */
 export class DiskFullError extends Error {
 	constructor() {

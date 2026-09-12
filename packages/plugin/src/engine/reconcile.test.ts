@@ -77,6 +77,19 @@ describe('planReconcile', () => {
 		expect(plan.remoteDeletes).toEqual([]);
 	});
 
+	// The guard is `indexed.length > 1`, not `> 0`: withholding a lone tracked file would
+	// wedge the republish of any local edit against a version the server has forgotten.
+	test('an empty server listing against a single indexed file still deletes it', () => {
+		const plan = planReconcile({
+			remote: [],
+			indexed: [{ fileId: 'f1', versionId: 'v1' }],
+			maxFileBytes: bigEnough,
+		});
+
+		expect(plan.massDeleteGuarded).toBe(false);
+		expect(plan.remoteDeletes).toEqual(['f1']);
+	});
+
 	test('an empty server listing against an empty index guards nothing', () => {
 		const plan = planReconcile({ remote: [], indexed: [], maxFileBytes: bigEnough });
 

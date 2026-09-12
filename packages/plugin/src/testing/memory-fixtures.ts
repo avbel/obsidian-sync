@@ -65,6 +65,18 @@ export class MemoryVault implements VaultAdapter {
 		}));
 	}
 
+	/** Deliberately not gated on `#blind`: the real one reads through `vault.adapter`, which works before the file cache fills. */
+	async listConfig(): Promise<VaultFile[]> {
+		return [...this.#files.entries()]
+			.filter(([path]) => path.startsWith('.obsidian/'))
+			.map(([path, file]) => ({
+				path,
+				mtime: file.mtime,
+				size: file.data.length,
+				ctime: file.ctime,
+			}));
+	}
+
 	async exists(path: string): Promise<boolean> {
 		return this.#blind ? false : this.#files.has(path);
 	}

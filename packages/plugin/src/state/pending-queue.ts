@@ -81,6 +81,21 @@ export class PendingQueue {
 		this.#items.set(path, { path, intent, attempts: 0, nextAttemptAt: 0 });
 	}
 
+	/**
+	 * Queue a path a scan found rather than one the user just edited. An entry already
+	 * waiting out its backoff keeps it: a scan runs on every sync, so resetting the
+	 * clock here would let a permanently failing file retry at full speed forever. A
+	 * blocked entry is re-queued, so shrinking an oversize file lets it through again.
+	 */
+	enqueueScanned(path: string, intent: PendingIntent): void {
+		this.#assertLoaded();
+		const existing = this.#items.get(path);
+		if (existing !== undefined && existing.intent === intent && existing.blocked === undefined) {
+			return;
+		}
+		this.enqueue(path, intent);
+	}
+
 	enqueueBatch(batch: DirtyPaths): void {
 		for (const path of batch.deleted) {
 			this.enqueue(path, 'delete');

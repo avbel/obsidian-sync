@@ -1,4 +1,10 @@
-import { type Requester, type SyncRequest, type SyncResponse, TimeoutError } from './client.js';
+import {
+	OfflineError,
+	type Requester,
+	type SyncRequest,
+	type SyncResponse,
+	TimeoutError,
+} from './client.js';
 
 /** Minimal surface matching Obsidian's requestUrl, injected so this file stays free of a direct `obsidian` import. */
 export type ObsidianRequestUrl = (params: {
@@ -71,7 +77,9 @@ export function createObsidianRequester(options: ObsidianRequesterOptions): Requ
 			const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
 			let timer: ReturnType<typeof setTimeout> | undefined;
 			const response = await Promise.race([
-				options.requestUrl(params),
+				options.requestUrl(params).catch((cause: unknown) => {
+					throw new OfflineError(cause);
+				}),
 				new Promise<never>((_resolve, reject) => {
 					timer = setTimeout(() => reject(new TimeoutError(timeoutMs)), timeoutMs);
 				}),

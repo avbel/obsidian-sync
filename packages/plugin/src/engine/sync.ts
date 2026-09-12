@@ -1,4 +1,4 @@
-import type { FileState } from '@obsidian-sync/protocol';
+import { type FileState, isValidVaultPath, normalisePath } from '@obsidian-sync/protocol';
 import { bytesToText, hashBytes, textToBytes } from '../crypto/encoding.js';
 import type { PurposeKeys } from '../crypto/keys.js';
 import type { BaseCache } from '../state/base-cache.js';
@@ -102,26 +102,49 @@ export class SyncEngine {
 		const { index, queue } = this.#deps;
 		this.#status('syncing');
 		try {
-			if (options.fullScan) {
-				await this.#enqueueFullScan();
-			}
+			await (options.fullScan ? this.#enqueueFullScan() : this.#enqueueConfigScan());
 
 			const now = Date.now();
-			for (const item of queue.ready(now, 'delete')) {
-				await this.#drain(item.path, 'delete', now);
-			}
-			for (const item of queue.ready(now, 'upsert')) {
-				await this.#drain(item.path, 'upsert', now);
-			}
+			await this.#drainReady('delete', now);
+			await this.#drainReady('upsert', now);
 			// An upsert whose path disappeared after it was queued becomes a delete.
-			for (const item of queue.ready(now, 'delete')) {
-				await this.#drain(item.path, 'delete', now);
-			}
+			await this.#drainReady('delete', now);
+		} finally {
+			// Saved here rather than after the drain so a halt thrown out of it still keeps
+			// the commits that did land; replaying one costs a 409 and a /state fetch each.
 			await index.save();
 			await this.#deps.bases.save();
 			await queue.save();
-		} finally {
 			this.#status('idle');
+		}
+	}
+
+	/**
+	 * `ready()` is a snapshot, so a queue-wide pause raised by one item's failure is
+	 * invisible to the rest of the pass unless it is re-checked between items. Without
+	 * this an offline device re-reads and re-encrypts every queued file before stopping.
+	 */
+	async #drainReady(intent: PendingIntent, now: number): Promise<void> {
+		const { queue } = this.#deps;
+		for (const item of queue.ready(now, intent)) {
+			if (queue.pausedUntil() > now) {
+				return;
+			}
+			await this.#drain(item.path, intent, now);
+		}
+	}
+
+	/**
+	 * Config-dir paths raise no vault event, so the watcher can never queue one. Without
+	 * a scan on every sync a theme, snippet or plugin-settings change would sit unsynced
+	 * until the next full reconcile.
+	 */
+	async #enqueueConfigScan(): Promise<void> {
+		const { vault, queue } = this.#deps;
+		for (const file of await vault.listConfig()) {
+			if (isPathIncluded(file.path, this.#selective)) {
+				queue.enqueueScanned(file.path, 'upsert');
+			}
 		}
 	}
 
@@ -133,13 +156,13 @@ export class SyncEngine {
 		}
 		for (const file of listed) {
 			if (isPathIncluded(file.path, this.#selective)) {
-				queue.enqueue(file.path, 'upsert');
+				queue.enqueueScanned(file.path, 'upsert');
 			}
 		}
 		if (this.#sawVault) {
 			for (const entry of index.entries()) {
 				if (isPathIncluded(entry.path, this.#selective) && !(await vault.exists(entry.path))) {
-					queue.enqueue(entry.path, 'delete');
+					queue.enqueueScanned(entry.path, 'delete');
 				}
 			}
 		}
@@ -158,9 +181,10 @@ export class SyncEngine {
 			const attempts = queue.all().find((item) => item.path === path)?.attempts ?? 0;
 			const delay = retryDelayMs(attempts + 1);
 			if (failure === 'halt') {
+				// Held until credentials are re-established. `reloadEngine` resumes the queue on
+				// every rebuild, which is what both a settings save and a plugin reload do — without
+				// that lift this pause is persisted and no edit ever uploads again.
 				queue.pause(Number.MAX_SAFE_INTEGER);
-				// Persist the stop before surfacing credentials/configuration failure to the caller.
-				await queue.save();
 				throw error;
 			}
 			if (failure === 'pause' || failure === 'retry-all') {
@@ -401,12 +425,16 @@ export class SyncEngine {
 		const decoded = await decodeFile(keys, fileId, state.metaBlob, (address) =>
 			client.getBlob(vaultId, address),
 		);
-		if (!isPathIncluded(decoded.path, this.#selective)) {
+		// Anyone holding the vault key controls this string, and it is about to be a
+		// filesystem write: `..` escapes the vault, and `.obsidian/../..` escapes it while
+		// still satisfying the never-synced prefix test that guards our own state dir.
+		const path = normalisePath(decoded.path);
+		if (!isValidVaultPath(path) || !isPathIncluded(path, this.#selective)) {
 			return 0;
 		}
 		return this.#applyRemoteFile({
 			fileId,
-			path: decoded.path,
+			path,
 			bytes: decoded.data,
 			mtime: decoded.meta.mtime,
 			chunks: decoded.meta.chunks,
@@ -530,10 +558,12 @@ export class SyncEngine {
 	 *
 	 * `mine` deliberately leaves the index recording the remote version: that is what
 	 * makes the restored bytes read as dirty, so the next push commits them against the
-	 * current head instead of needing a second commit path here.
+	 * current head instead of needing a second commit path here. The path is queued
+	 * explicitly because an ordinary sync drains the queue rather than rescanning, and a
+	 * config-dir path raises no vault event for the watcher to pick up either.
 	 */
 	async resolveConflict(record: ConflictRecord, choice: ConflictChoice): Promise<ConflictOutcome> {
-		const { vault } = this.#deps;
+		const { vault, queue } = this.#deps;
 		if (choice === 'both') {
 			return 'resolved';
 		}
@@ -556,6 +586,7 @@ export class SyncEngine {
 			throw error;
 		}
 		await vault.trash(record.conflictCopyPath);
+		queue.enqueue(record.path, 'upsert');
 		return 'resolved';
 	}
 }

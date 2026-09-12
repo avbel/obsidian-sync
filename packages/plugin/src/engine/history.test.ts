@@ -30,7 +30,10 @@ async function device(deviceId: string, deviceLabel: string): Promise<HistoryDev
 		...built,
 		history: new VersionHistoryService({
 			...built.deps,
-			requestSync: () => built.engine.pushAll(),
+			enqueue: (path) => built.queue.enqueue(path, 'upsert'),
+			// `fullScan: false` is what an ordinary sync does; the no-arg default rescans the
+			// whole vault and would hide a restore that forgot to queue its own path.
+			requestSync: () => built.engine.pushAll({ fullScan: false }),
 		}),
 	};
 }

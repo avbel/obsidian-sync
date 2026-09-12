@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
 	ConflictError,
 	DiskFullError,
+	OfflineError,
 	ServerError,
 	TimeoutError,
 	UnauthorizedError,
@@ -26,5 +27,11 @@ describe('classifyFailure', () => {
 		expect(classifyFailure(new ServerError(500, undefined))).toBe('retry-all');
 		expect(classifyFailure(new ServerError(400, undefined))).toBe('retry-item');
 		expect(classifyFailure(new ConflictError('abc'))).toBe('retry-item');
+		expect(classifyFailure(new OfflineError(new Error('ENOTFOUND')))).toBe('retry-all');
+	});
+
+	test('anything unrecognised defers only its own file', () => {
+		expect(classifyFailure(new Error('encode failed'))).toBe('retry-item');
+		expect(classifyFailure('not an error at all')).toBe('retry-item');
 	});
 });

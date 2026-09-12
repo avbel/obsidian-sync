@@ -53,6 +53,7 @@ import {
 const minimumApiVersion = '1.13.2';
 const hideCoreSyncClass = 'obsidian-sync-hide-core-sync';
 const syncWatchdogMs = 5 * 60 * 1000;
+const minimumWakeMs = 1_000;
 const foregroundThrottleMs = 1000;
 
 export default class SyncPlugin extends Plugin {
@@ -300,12 +301,18 @@ export default class SyncPlugin extends Plugin {
 		const state = createStateStorage(this.app.vault, stateDir);
 		const index = new FileIndex(state);
 		const bases = new BaseCache(state);
-		this.#queue = new PendingQueue(state);
+		const queue = new PendingQueue(state);
+		this.#queue = queue;
 		await index.load();
 		await bases.load();
-		await this.#queue.load();
+		await queue.load();
 		const local = new LocalState(createLocalStateStore(this.app));
 		const deviceId = local.ensureDeviceId(() => crypto.randomUUID());
+
+		// A 401 pauses the queue indefinitely and that pause is persisted, so without
+		// lifting it here a single expired token would stop every future upload for good.
+		// A rebuild is exactly the point where credentials have just been re-read.
+		queue.resume();
 
 		const vaultAdapter = createVaultAdapter(this.app);
 		this.#engine = new SyncEngine({
@@ -316,7 +323,7 @@ export default class SyncPlugin extends Plugin {
 			index,
 			bases,
 			local,
-			queue: this.#queue,
+			queue,
 			selective: toSelectiveSyncOptions(this.settings),
 			deviceId,
 			deviceLabel: this.settings.deviceLabel,
@@ -338,6 +345,7 @@ export default class SyncPlugin extends Plugin {
 			vault: vaultAdapter,
 			index,
 			deviceId,
+			enqueue: (path) => queue.enqueue(path, 'upsert'),
 			requestSync: () => this.requestSync(),
 		});
 		this.vaultIdForNudge = vault.id;
@@ -489,7 +497,9 @@ export default class SyncPlugin extends Plugin {
 				this.#retryTimer = null;
 				void this.requestSync();
 			},
-			Math.max(0, readyAt - Date.now()),
+			// A freshly queued item is ready at 0, and a pull that fails before the drain
+			// never advances that clock — so an unreachable server would spin without a floor.
+			Math.max(minimumWakeMs, readyAt - Date.now()),
 		);
 	}
 

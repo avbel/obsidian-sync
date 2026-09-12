@@ -101,6 +101,10 @@ export function createVaultAdapter(app: App): VaultAdapter {
 			return [...app.vault.getFiles().map(toVaultFile), ...(await listConfigFiles())];
 		},
 
+		async listConfig() {
+			return listConfigFiles();
+		},
+
 		async exists(path) {
 			const target = normalizePath(path);
 			return isConfig(target) ? adapter.exists(target) : asTFile(target) !== null;
