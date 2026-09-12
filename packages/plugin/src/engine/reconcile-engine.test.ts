@@ -80,7 +80,8 @@ describe('full reconcile', () => {
 		await phone.engine.pullAll();
 
 		await laptop.vault.remove('gone.md');
-		await laptop.engine.pushAll(['gone.md']);
+		laptop.queue.enqueue('gone.md', 'delete');
+		await laptop.engine.pushAll();
 
 		phone.local.setCursor(server.log.length);
 		await phone.engine.pullAll();
@@ -103,7 +104,8 @@ describe('full reconcile', () => {
 		phone.vault.putText('note.md', 'edited on the phone\n');
 
 		await laptop.vault.remove('note.md');
-		await laptop.engine.pushAll(['note.md']);
+		laptop.queue.enqueue('note.md', 'delete');
+		await laptop.engine.pushAll();
 
 		phone.local.setCursor(server.log.length);
 		await phone.engine.reconcile();

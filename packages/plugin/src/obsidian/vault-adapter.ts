@@ -106,6 +106,19 @@ export function createVaultAdapter(app: App): VaultAdapter {
 			return isConfig(target) ? adapter.exists(target) : asTFile(target) !== null;
 		},
 
+		async stat(path) {
+			const target = normalizePath(path);
+			if (isConfig(target)) {
+				const found = await adapter.stat(target).catch(() => null);
+				if (found === null || found.type !== 'file') {
+					return undefined;
+				}
+				return { path: target, mtime: found.mtime, size: found.size, ctime: found.ctime };
+			}
+			const file = asTFile(target);
+			return file === null ? undefined : toVaultFile(file);
+		},
+
 		async read(path) {
 			const target = normalizePath(path);
 			if (isConfig(target)) {

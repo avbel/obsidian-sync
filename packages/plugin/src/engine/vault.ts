@@ -35,6 +35,8 @@ export interface WriteOptions {
 export interface VaultAdapter {
 	list(): Promise<VaultFile[]>;
 	exists(path: string): Promise<boolean>;
+	/** One path's stat, so a queued push costs no whole-vault listing. */
+	stat(path: string): Promise<VaultFile | undefined>;
 	read(path: string): Promise<Uint8Array>;
 	/** Compare-and-set against `expected`, closing the mid-keystroke pull window (§6.2). */
 	write(path: string, data: Uint8Array, options?: WriteOptions): Promise<void>;

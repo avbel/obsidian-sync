@@ -4,7 +4,9 @@ import type { PurposeKeys } from '../crypto/keys.js';
 import type { BaseCache } from '../state/base-cache.js';
 import type { FileIndex } from '../state/file-index.js';
 import type { LocalState } from '../state/local-state.js';
+import type { PendingIntent, PendingQueue } from '../state/pending-queue.js';
 import { type ApiClient, ConflictError } from '../transport/client.js';
+import { classifyFailure, retryDelayMs } from './backoff.js';
 import { decodeFile, encodeFile } from './codec.js';
 import { copyStamp, uniqueCopyPath } from './copy.js';
 import { merge3 } from './merge.js';
@@ -39,6 +41,7 @@ export interface SyncEngineDeps {
 	index: FileIndex;
 	bases: BaseCache;
 	local: LocalState;
+	queue: PendingQueue;
 	selective: SelectiveSyncOptions;
 	deviceId: string;
 	deviceLabel: string;
@@ -53,6 +56,11 @@ interface RemoteVersion {
 	mtime: number;
 	chunks: string[];
 	headVersion: string;
+}
+
+interface PushOutcome {
+	committed: boolean;
+	forget: boolean;
 }
 
 /**
@@ -89,57 +97,101 @@ export class SyncEngine {
 		this.#deps.onStatus?.(status);
 	}
 
-	/** Push every file whose bytes differ from the index, and every local delete. */
-	async pushAll(deletedPaths: string[] = []): Promise<void> {
-		const { vault, index } = this.#deps;
+	/** Drain queued changes. Full scans are reserved for reconciliation and recovery. */
+	async pushAll(options: { fullScan?: boolean } = { fullScan: true }): Promise<void> {
+		const { index, queue } = this.#deps;
 		this.#status('syncing');
 		try {
-			// Deletes first (§9): draining a queue after a long offline period replays
-			// coherently if removals precede content writes.
-			for (const path of deletedPaths) {
-				await this.#pushDelete(path);
+			if (options.fullScan) {
+				await this.#enqueueFullScan();
 			}
 
-			// A delete dropped by a crash or a failed upload leaves no event to replay,
-			// so absence is re-derived: an indexed path that is gone locally is a delete.
-			const listed = await vault.list();
-			if (listed.length > 0) {
-				this.#sawVault = true;
+			const now = Date.now();
+			for (const item of queue.ready(now, 'delete')) {
+				await this.#drain(item.path, 'delete', now);
 			}
-			// Absence only means "deleted" once this session has seen the vault list its
-			// contents at least once. Before that an empty listing is a vault that cannot
-			// see itself yet, and treating it as a mass delete would wipe the server.
-			if (this.#sawVault) {
-				for (const entry of index.entries()) {
-					if (isPathIncluded(entry.path, this.#selective) && !(await vault.exists(entry.path))) {
-						await this.#pushDelete(entry.path);
-					}
-				}
+			for (const item of queue.ready(now, 'upsert')) {
+				await this.#drain(item.path, 'upsert', now);
 			}
-
-			for (const file of listed) {
-				if (
-					!isPathIncluded(file.path, this.#selective) ||
-					file.size > this.#selective.maxFileBytes
-				) {
-					continue;
-				}
-				const data = await vault.read(file.path);
-				const hash = await hashBytes(data);
-				const known = index.get(file.path);
-				if (known !== undefined && known.hash === hash) {
-					continue;
-				}
-				await this.#pushFile(file, data);
+			// An upsert whose path disappeared after it was queued becomes a delete.
+			for (const item of queue.ready(now, 'delete')) {
+				await this.#drain(item.path, 'delete', now);
 			}
 			await index.save();
 			await this.#deps.bases.save();
+			await queue.save();
 		} finally {
 			this.#status('idle');
 		}
 	}
 
-	async #pushFile(file: VaultFile, data: Uint8Array, attempt = 0): Promise<void> {
+	async #enqueueFullScan(): Promise<void> {
+		const { vault, index, queue } = this.#deps;
+		const listed = await vault.list();
+		if (listed.length > 0) {
+			this.#sawVault = true;
+		}
+		for (const file of listed) {
+			if (isPathIncluded(file.path, this.#selective)) {
+				queue.enqueue(file.path, 'upsert');
+			}
+		}
+		if (this.#sawVault) {
+			for (const entry of index.entries()) {
+				if (isPathIncluded(entry.path, this.#selective) && !(await vault.exists(entry.path))) {
+					queue.enqueue(entry.path, 'delete');
+				}
+			}
+		}
+	}
+
+	async #drain(path: string, intent: PendingIntent, now: number): Promise<void> {
+		const { queue } = this.#deps;
+		try {
+			const outcome =
+				intent === 'delete' ? await this.#pushDelete(path) : await this.#pushPath(path);
+			if (outcome.forget) {
+				queue.forget(path);
+			}
+		} catch (error) {
+			const failure = classifyFailure(error);
+			const attempts = queue.all().find((item) => item.path === path)?.attempts ?? 0;
+			const delay = retryDelayMs(attempts + 1);
+			if (failure === 'halt') {
+				queue.pause(Number.MAX_SAFE_INTEGER);
+				this.#status('error');
+				return;
+			}
+			if (failure === 'pause' || failure === 'retry-all') {
+				queue.pause(now + delay);
+			}
+			queue.fail(path, delay, now, error instanceof Error ? error.message : 'Push failed');
+		}
+	}
+
+	async #pushPath(path: string): Promise<PushOutcome> {
+		const { vault, index, queue } = this.#deps;
+		const file = await vault.stat(path);
+		if (file === undefined) {
+			queue.enqueue(path, 'delete');
+			return { committed: false, forget: false };
+		}
+		if (!isPathIncluded(path, this.#selective)) {
+			return { committed: false, forget: true };
+		}
+		if (file.size > this.#selective.maxFileBytes) {
+			queue.block(path, 'oversize');
+			return { committed: false, forget: false };
+		}
+		const data = await vault.read(path);
+		const known = index.get(path);
+		if (known !== undefined && known.hash === (await hashBytes(data))) {
+			return { committed: false, forget: true };
+		}
+		return this.#pushFile(file, data);
+	}
+
+	async #pushFile(file: VaultFile, data: Uint8Array, attempt = 0): Promise<PushOutcome> {
 		const { vaultId, client, keys, index, bases, deviceId } = this.#deps;
 		const known = index.get(file.path);
 		const encoded = await encodeFile(keys, {
@@ -183,25 +235,26 @@ export class SyncEngine {
 			if (isTextPath(file.path)) {
 				bases.set(encoded.fileId, bytesToText(data));
 			}
+			return { committed: true, forget: true };
 		} catch (error) {
 			if (error instanceof ConflictError && attempt < 2) {
 				// §7.1 step 7: pull the winning version, merge locally, retry the push.
 				await this.#pullFileById(encoded.fileId);
 				if (await this.#deps.vault.exists(file.path)) {
 					const updated = await this.#deps.vault.read(file.path);
-					await this.#pushFile({ ...file }, updated, attempt + 1);
+					return this.#pushFile({ ...file }, updated, attempt + 1);
 				}
-				return;
+				return { committed: false, forget: true };
 			}
 			throw error;
 		}
 	}
 
-	async #pushDelete(path: string): Promise<void> {
+	async #pushDelete(path: string): Promise<PushOutcome> {
 		const { vaultId, client, vault, index, bases } = this.#deps;
 		const known = index.get(path);
 		if (known === undefined) {
-			return;
+			return { committed: false, forget: true };
 		}
 		// A queued delete is stale the moment the path exists again, whether a pull
 		// restored it or the user recreated it. Pushing it anyway destroys live
@@ -209,7 +262,7 @@ export class SyncEngine {
 		// watcher as a user delete, two devices will otherwise delete and recreate the
 		// same file at each other indefinitely.
 		if (await vault.exists(path)) {
-			return;
+			return { committed: false, forget: true };
 		}
 		try {
 			await client.delete(vaultId, known.fileId, known.versionId);
@@ -220,6 +273,7 @@ export class SyncEngine {
 		}
 		index.delete(path);
 		bases.delete(known.fileId);
+		return { committed: true, forget: true };
 	}
 
 	/**

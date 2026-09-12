@@ -69,6 +69,14 @@ export class MemoryVault implements VaultAdapter {
 		return this.#blind ? false : this.#files.has(path);
 	}
 
+	async stat(path: string): Promise<VaultFile | undefined> {
+		const file = this.#files.get(path);
+		if (this.#blind || file === undefined) {
+			return undefined;
+		}
+		return { path, mtime: file.mtime, size: file.data.length, ctime: file.ctime };
+	}
+
 	async read(path: string): Promise<Uint8Array> {
 		const file = this.#files.get(path);
 		if (file === undefined) {

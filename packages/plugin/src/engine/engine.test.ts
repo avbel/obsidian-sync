@@ -64,7 +64,40 @@ describe('two clients on one vault', () => {
 		// A local delete: the file is gone from the device, and the watcher queues its
 		// removal. pushAll must not re-create it from a still-listed copy.
 		await laptop.vault.remove('gone.md');
-		await laptop.engine.pushAll(['gone.md']);
+		laptop.queue.enqueue('gone.md', 'delete');
+		await laptop.engine.pushAll();
+		await phone.engine.pullAll();
+		expect(await phone.vault.exists('gone.md')).toBe(false);
+	});
+
+	test('drains only durable queued paths after restart', async () => {
+		const first = await device('laptop');
+		first.vault.putText('queued.md', 'saved while offline\n');
+		first.queue.enqueue('queued.md', 'upsert');
+		await first.queue.save();
+
+		const restarted = await makeDevice({ server, keys, client }, 'laptop', {
+			vault: first.vault,
+			storage: first.storage,
+		});
+		await restarted.engine.pushAll({ fullScan: false });
+
+		const phone = await device('phone');
+		await phone.engine.pullAll();
+		expect(phone.vault.getText('queued.md')).toBe('saved while offline\n');
+		expect(restarted.queue.depth()).toEqual({ upserts: 0, deletes: 0, blocked: 0 });
+	});
+
+	test('turns a disappeared queued upsert into a remote delete', async () => {
+		const laptop = await device('laptop');
+		laptop.vault.putText('gone.md', 'bye\n');
+		await laptop.engine.pushAll();
+
+		await laptop.vault.remove('gone.md');
+		laptop.queue.enqueue('gone.md', 'upsert');
+		await laptop.engine.pushAll({ fullScan: false });
+
+		const phone = await device('phone');
 		await phone.engine.pullAll();
 		expect(await phone.vault.exists('gone.md')).toBe(false);
 	});
@@ -163,7 +196,8 @@ describe('regressions', () => {
 
 		phone.vault.putText('note.md', 'edited on the phone\n');
 		await laptop.vault.remove('note.md');
-		await laptop.engine.pushAll(['note.md']);
+		laptop.queue.enqueue('note.md', 'delete');
+		await laptop.engine.pushAll();
 
 		await phone.engine.pullAll();
 		expect(phone.vault.getText('note.md')).toBe('edited on the phone\n');
@@ -235,7 +269,8 @@ describe('regressions', () => {
 		// lands and the very same pushAll re-uploads the file, so the vault looks
 		// settled while every device has been handed a delete to apply.
 		const before = server.log.length;
-		await laptop.engine.pushAll(['note.md']);
+		laptop.queue.enqueue('note.md', 'delete');
+		await laptop.engine.pushAll();
 
 		expect(server.log.slice(before).map((change) => change.kind)).toEqual([]);
 		expect(server.headOf(fileId)).toBeDefined();

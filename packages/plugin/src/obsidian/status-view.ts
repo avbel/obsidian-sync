@@ -44,6 +44,14 @@ export class SyncStatusView extends ItemView {
 		const at = this.#plugin.lastSyncAt;
 		lastSync.setText(at === 0 ? 'Never synced' : `Last synced ${relativeTime(at)}`);
 
+		const pending = this.#plugin.pendingPushes;
+		if (pending.upserts + pending.deletes + pending.blocked > 0) {
+			root.createDiv({
+				cls: 'obsidian-sync-status__queue',
+				text: `Pending changes: ${pending.upserts} upload(s), ${pending.deletes} deletion(s), ${pending.blocked} blocked`,
+			});
+		}
+
 		const reconcile = this.#plugin.lastReconcile;
 		if (reconcile !== undefined) {
 			root.createDiv({

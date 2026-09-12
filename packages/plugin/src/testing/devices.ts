@@ -4,6 +4,7 @@ import { type ConflictRecord, SyncEngine, type SyncEngineDeps } from '../engine/
 import { BaseCache } from '../state/base-cache.js';
 import { FileIndex } from '../state/file-index.js';
 import { LocalState, type LocalStateStore } from '../state/local-state.js';
+import { PendingQueue } from '../state/pending-queue.js';
 import type { ApiClient } from '../transport/client.js';
 import type { FakeServer } from './fake-server.js';
 import { MemoryStorage, MemoryVault } from './memory-fixtures.js';
@@ -41,14 +42,18 @@ export interface DeviceContext {
 export interface DeviceOverrides {
 	/** Reuse an existing vault, so a device can be rebuilt with its files but no index. */
 	vault?: MemoryVault;
+	/** Reuse durable state, so a rebuilt device retains index, bases, and queue. */
+	storage?: MemoryStorage;
 	selective?: SelectiveSyncOptions;
 }
 
 export interface Device {
 	engine: SyncEngine;
 	vault: MemoryVault;
+	storage: MemoryStorage;
 	index: FileIndex;
 	bases: BaseCache;
+	queue: PendingQueue;
 	local: LocalState;
 	conflicts: ConflictRecord[];
 	deps: SyncEngineDeps;
@@ -60,11 +65,14 @@ export async function makeDevice(
 	overrides: DeviceOverrides = {},
 ): Promise<Device> {
 	const vault = overrides.vault ?? new MemoryVault();
-	const index = new FileIndex(new MemoryStorage());
-	const bases = new BaseCache(new MemoryStorage());
+	const storage = overrides.storage ?? new MemoryStorage();
+	const index = new FileIndex(storage);
+	const bases = new BaseCache(storage);
+	const queue = new PendingQueue(storage);
 	const { local } = memoryLocalState();
 	await index.load();
 	await bases.load();
+	await queue.load();
 	const conflicts: ConflictRecord[] = [];
 	const deps: SyncEngineDeps = {
 		vaultId: context.server.vaultId,
@@ -74,10 +82,21 @@ export async function makeDevice(
 		index,
 		bases,
 		local,
+		queue,
 		selective: overrides.selective ?? fullSelective,
 		deviceId,
 		deviceLabel: deviceId,
 		onConflict: (conflict) => conflicts.push(conflict),
 	};
-	return { engine: new SyncEngine(deps), vault, index, bases, local, conflicts, deps };
+	return {
+		engine: new SyncEngine(deps),
+		vault,
+		storage,
+		index,
+		bases,
+		queue,
+		local,
+		conflicts,
+		deps,
+	};
 }

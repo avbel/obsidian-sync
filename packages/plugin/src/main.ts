@@ -39,6 +39,7 @@ import { BaseCache } from './state/base-cache.js';
 import { ConflictList } from './state/conflict-list.js';
 import { FileIndex } from './state/file-index.js';
 import { LocalState } from './state/local-state.js';
+import { PendingQueue } from './state/pending-queue.js';
 import { ApiClient } from './transport/client.js';
 import { createObsidianRequester } from './transport/http.js';
 import {
@@ -66,14 +67,19 @@ export default class SyncPlugin extends Plugin {
 		return this.#conflicts?.all() ?? [];
 	}
 
+	get pendingPushes(): { upserts: number; deletes: number; blocked: number } {
+		return this.#queue?.depth() ?? { upserts: 0, deletes: 0, blocked: 0 };
+	}
+
 	#engine: SyncEngine | null = null;
 	#history: VersionHistoryService | null = null;
 	#keys: PurposeKeys | null = null;
 	#nudge: NudgeSource | null = null;
 	#watcher: DebouncedWatcher | null = null;
+	#queue: PendingQueue | null = null;
 	#statusBarItem: HTMLElement | null = null;
 	#lastForegroundAt = 0;
-	#pendingDeletes = new Set<string>();
+	#retryTimer: number | null = null;
 	#syncing: Promise<void> | null = null;
 	#resyncRequested = false;
 	#reconcileRequested: 'silent' | 'announce' | undefined;
@@ -136,6 +142,9 @@ export default class SyncPlugin extends Plugin {
 	override async onunload(): Promise<void> {
 		document.body.classList.remove(hideCoreSyncClass);
 		this.#stopEngine();
+		if (this.#retryTimer !== null) {
+			window.clearTimeout(this.#retryTimer);
+		}
 	}
 
 	secretOrEmpty(id: string): string {
@@ -288,10 +297,13 @@ export default class SyncPlugin extends Plugin {
 		this.#keys = await derivePurposeKeys(passphrase, vault.kdfSalt);
 
 		const stateDir = `.obsidian/plugins/${pluginId}/state`;
-		const index = new FileIndex(createStateStorage(this.app.vault, stateDir));
-		const bases = new BaseCache(createStateStorage(this.app.vault, stateDir));
+		const state = createStateStorage(this.app.vault, stateDir);
+		const index = new FileIndex(state);
+		const bases = new BaseCache(state);
+		this.#queue = new PendingQueue(state);
 		await index.load();
 		await bases.load();
+		await this.#queue.load();
 		const local = new LocalState(createLocalStateStore(this.app));
 		const deviceId = local.ensureDeviceId(() => crypto.randomUUID());
 
@@ -304,6 +316,7 @@ export default class SyncPlugin extends Plugin {
 			index,
 			bases,
 			local,
+			queue: this.#queue,
 			selective: toSelectiveSyncOptions(this.settings),
 			deviceId,
 			deviceLabel: this.settings.deviceLabel,
@@ -381,12 +394,18 @@ export default class SyncPlugin extends Plugin {
 	}
 
 	#startWatcher(): void {
-		this.#watcher = new DebouncedWatcher(this.app.vault, this.settings.debounceMs, (batch) => {
-			for (const path of batch.deleted) {
-				this.#pendingDeletes.add(path);
-			}
-			return this.requestSync();
-		});
+		this.#watcher = new DebouncedWatcher(
+			this.app.vault,
+			this.settings.debounceMs,
+			async (batch) => {
+				if (this.#queue === null) {
+					return;
+				}
+				this.#queue.enqueueBatch(batch);
+				await this.#queue.save();
+				await this.requestSync();
+			},
+		);
 		this.#watcher.start();
 	}
 
@@ -425,10 +444,6 @@ export default class SyncPlugin extends Plugin {
 			await this.reloadEngine();
 			return;
 		}
-		// Drained rather than read, so a failure can put them back: a delete has no
-		// on-disk trace to rediscover beyond the index, which pushAll also reconciles.
-		const deletes = [...this.#pendingDeletes];
-		this.#pendingDeletes.clear();
 		const reconciling = this.#reconcileRequested;
 		this.#reconcileRequested = undefined;
 		try {
@@ -447,18 +462,35 @@ export default class SyncPlugin extends Plugin {
 					);
 				}
 			}
-			await this.#engine.pushAll(deletes);
+			await this.#engine.pushAll({ fullScan: reconciling !== undefined });
 			this.lastSyncAt = Date.now();
 			this.#setStatus('idle');
 		} catch (error) {
-			for (const path of deletes) {
-				this.#pendingDeletes.add(path);
-			}
 			// A reconcile that failed is still owed; the next run picks it up.
 			this.#reconcileRequested = reconciling;
 			this.#setStatus('error');
 			this.#logError(error);
+		} finally {
+			this.#scheduleRetry();
 		}
+	}
+
+	#scheduleRetry(): void {
+		if (this.#retryTimer !== null) {
+			window.clearTimeout(this.#retryTimer);
+			this.#retryTimer = null;
+		}
+		const readyAt = this.#queue?.readyAt();
+		if (readyAt === undefined || readyAt === Number.MAX_SAFE_INTEGER) {
+			return;
+		}
+		this.#retryTimer = window.setTimeout(
+			() => {
+				this.#retryTimer = null;
+				void this.requestSync();
+			},
+			Math.max(0, readyAt - Date.now()),
+		);
 	}
 
 	#applyCoreSyncVisibility(): void {
@@ -610,6 +642,10 @@ export default class SyncPlugin extends Plugin {
 
 	#stopEngine(): void {
 		this.#nudge?.stop();
+		if (this.#retryTimer !== null) {
+			window.clearTimeout(this.#retryTimer);
+			this.#retryTimer = null;
+		}
 		this.#syncing = null;
 		this.#resyncRequested = false;
 		this.#reconcileRequested = undefined;
@@ -618,6 +654,7 @@ export default class SyncPlugin extends Plugin {
 		this.#watcher = null;
 		this.#engine = null;
 		this.#history = null;
+		this.#queue = null;
 	}
 }
 
