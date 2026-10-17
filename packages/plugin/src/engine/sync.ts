@@ -115,11 +115,17 @@ export class SyncEngine {
 	}
 
 	/** Drain queued changes. Full scans are reserved for reconciliation and recovery. */
-	async pushAll(options: { fullScan?: boolean } = { fullScan: true }): Promise<void> {
+	async pushAll(
+		options: { fullScan?: boolean; queuedOnly?: boolean } = { fullScan: true },
+	): Promise<void> {
 		const { index, queue } = this.#deps;
 		this.#status('syncing');
 		try {
-			await (options.fullScan ? this.#enqueueFullScan() : this.#enqueueConfigScan());
+			if (options.fullScan) {
+				await this.#enqueueFullScan();
+			} else if (!options.queuedOnly) {
+				await this.#enqueueConfigScan();
+			}
 
 			const now = Date.now();
 			await this.#drainReady('delete', now);
@@ -445,7 +451,11 @@ export class SyncEngine {
 		const { vaultId, client } = this.#deps;
 		const snapshot = await client.state(vaultId);
 		const state = snapshot.files.find((file) => file.fileId === fileId);
-		return state === undefined ? 0 : this.#applyRemoteState(fileId, state);
+		// Absent means deleted elsewhere. Without applying it the retry recommits against
+		// the same tombstoned parent, 409s again, and the edit waits out a backoff.
+		return state === undefined
+			? this.#applyRemoteDelete(fileId)
+			: this.#applyRemoteState(fileId, state);
 	}
 
 	/** Decrypt one server file record and apply it under §8. Returns 1 if it merged. */

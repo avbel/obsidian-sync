@@ -158,6 +158,23 @@ export class PendingQueue {
 		this.#pausedUntil = 0;
 	}
 
+	/**
+	 * Make every waiting item ready now, for the last moment before iOS freezes the app.
+	 * A rejected token's halt is kept, since retrying cannot clear it, and blocked items
+	 * stay parked until their file changes.
+	 */
+	retryNow(): void {
+		this.#assertLoaded();
+		if (this.#pausedUntil !== Number.MAX_SAFE_INTEGER) {
+			this.#pausedUntil = 0;
+		}
+		for (const [path, item] of this.#items) {
+			if (item.blocked === undefined) {
+				this.#items.set(path, { ...item, nextAttemptAt: 0 });
+			}
+		}
+	}
+
 	pausedUntil(): number {
 		this.#assertLoaded();
 		return this.#pausedUntil;

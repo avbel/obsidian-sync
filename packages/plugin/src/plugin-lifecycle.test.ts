@@ -22,11 +22,13 @@ let app: FakeApp;
 let server: FakeServer;
 let plugin: SyncPlugin;
 let offline = false;
+/** Reads still answer, so the pull succeeds and only the push trips the queue's backoff. */
+let uploadsFail = false;
 
 /** Bridges Obsidian's requestUrl shape onto the fake server, with a switch for the wire. */
 function wireTransport(): void {
 	setRequestUrlHandler(async (params) => {
-		if (offline) {
+		if (offline || (uploadsFail && params.method !== 'GET')) {
 			throw new Error('connect ECONNREFUSED 127.0.0.1:3000');
 		}
 		const path = params.url.replace('http://sync.test', '');
@@ -66,6 +68,7 @@ async function until(predicate: () => boolean, ms = 5_000): Promise<void> {
 beforeEach(() => {
 	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 	offline = false;
+	uploadsFail = false;
 	app = new FakeApp();
 	app.secrets.set(secretKeys.token, 'a-token');
 	app.secrets.set(secretKeys.passphrase, 'a-passphrase');
@@ -162,5 +165,58 @@ describe('engine lifecycle', () => {
 		await until(() => plugin.vaultIdForNudge !== '');
 
 		expect(plugin.vaultIdForNudge).toBe(server.vaultId);
+	});
+});
+
+describe('backgrounding on mobile', () => {
+	// iOS freezes the app a few seconds after it is hidden. Before this, a note typed just
+	// before switching apps waited out the editor's save delay, the watcher debounce and a
+	// full pull, so the freeze landed first and the note only left the phone on its next open.
+	test('saves the open editor and commits its edit before pulling', async () => {
+		await plugin.reloadEngine();
+		await plugin.requestSync();
+		app.activeView = {
+			save: async () => {
+				app.put('typed.md', 'written just before switching apps');
+				app.emit('create', 'typed.md');
+			},
+		};
+		server.requests.length = 0;
+
+		await plugin.syncBeforeSuspend();
+
+		const commit = server.requests.findIndex(
+			(request) => request.startsWith('POST') && request.includes('/files/'),
+		);
+		const pull = server.requests.findIndex((request) => request.includes('/changes'));
+		expect(commit).toBeGreaterThanOrEqual(0);
+		expect(commit).toBeLessThan(pull);
+	});
+
+	test('does nothing when nothing is unsaved', async () => {
+		await plugin.reloadEngine();
+		await plugin.requestSync();
+		server.requests.length = 0;
+
+		await plugin.syncBeforeSuspend();
+
+		expect(server.requests).toEqual([]);
+	});
+
+	test('sends an edit an outage left waiting, without waiting out its backoff', async () => {
+		await plugin.reloadEngine();
+		await plugin.requestSync();
+		uploadsFail = true;
+		app.put('offline.md', 'typed with no signal');
+		app.emit('create', 'offline.md');
+		await vi.advanceTimersByTimeAsync(defaultSettings.debounceMs);
+		await until(() => plugin.pendingPushes.upserts === 1 && plugin.lastStatus === 'idle');
+		uploadsFail = false;
+		server.requests.length = 0;
+
+		await plugin.syncBeforeSuspend();
+
+		expect(server.requests.some((request) => request.includes('/files/'))).toBe(true);
+		expect(plugin.pendingPushes.upserts).toBe(0);
 	});
 });

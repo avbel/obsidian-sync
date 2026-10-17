@@ -1,4 +1,5 @@
 import {
+	MarkdownView,
 	Notice,
 	Platform,
 	Plugin,
@@ -102,6 +103,7 @@ export default class SyncPlugin extends Plugin {
 	#syncing: Promise<void> | null = null;
 	#resyncRequested = false;
 	#reconcileRequested: ReconcileRequest;
+	#pushFirst = false;
 
 	override async onload(): Promise<void> {
 		if (!requireApiVersion(minimumApiVersion)) {
@@ -244,7 +246,9 @@ export default class SyncPlugin extends Plugin {
 			return;
 		}
 		this.registerDomEvent(document, 'visibilitychange', () => {
-			if (!document.hidden) {
+			if (document.hidden) {
+				void this.syncBeforeSuspend();
+			} else {
 				this.#onForeground();
 			}
 		});
@@ -272,6 +276,33 @@ export default class SyncPlugin extends Plugin {
 		// Incremental, not a full reconcile: /state carries every metaBlob in the vault,
 		// and a foreground can fire often on mobile. Load and the command cover recovery.
 		void this.requestSync();
+	}
+
+	/**
+	 * iOS freezes a hidden app within seconds, and nothing runs again until it is opened,
+	 * so an edit still waiting on the editor's save delay or the watcher debounce would
+	 * stay on the phone. The save has to land before the flush, or the flush misses it.
+	 */
+	async syncBeforeSuspend(): Promise<void> {
+		const watcher = this.#watcher;
+		const queue = this.#queue;
+		if (!this.settings.enabled || watcher === null || queue === null) {
+			return;
+		}
+		try {
+			await this.app.workspace.getActiveViewOfType(MarkdownView)?.save();
+		} catch (error) {
+			this.#logError(error);
+		}
+		// A backoff left by an earlier outage would hold the push until after the freeze.
+		queue.retryNow();
+		this.#pushFirst = true;
+		await watcher.flush();
+		const { upserts, deletes } = queue.depth();
+		if (this.#pushFirst && upserts + deletes > 0) {
+			await this.requestSync();
+		}
+		this.#pushFirst = false;
 	}
 
 	async reloadEngine(): Promise<void> {
@@ -516,14 +547,22 @@ export default class SyncPlugin extends Plugin {
 			// Rebuilt, so carry on into this same run: a queue that has been waiting out an
 			// unreachable server drains now rather than on whatever happens to fire next.
 		}
+		const engine = this.#engine;
 		const reconciling = this.#reconcileRequested;
 		this.#reconcileRequested = undefined;
+		const pushFirst = this.#pushFirst;
+		this.#pushFirst = false;
 		try {
 			this.#setStatus('syncing');
+			// Ahead of the pull, so an app iOS freezes mid-run has already sent the edit.
+			// Ahead of a reconcile's snapshot too, which only forbids a push after it.
+			if (pushFirst) {
+				await engine.pushAll({ queuedOnly: true });
+			}
 			if (reconciling === undefined) {
-				await this.#engine.pullAll();
+				await engine.pullAll();
 			} else {
-				const summary = await this.#engine.reconcile();
+				const summary = await engine.reconcile();
 				this.lastReconcile = summary;
 				if (reconciling === 'announce') {
 					new Notice(describeReconcile(summary));
@@ -534,7 +573,7 @@ export default class SyncPlugin extends Plugin {
 					);
 				}
 			}
-			await this.#engine.pushAll({ fullScan: reconciling !== undefined });
+			await engine.pushAll({ fullScan: reconciling !== undefined });
 			this.lastSyncAt = Date.now();
 			this.#setStatus('idle');
 		} catch (error) {

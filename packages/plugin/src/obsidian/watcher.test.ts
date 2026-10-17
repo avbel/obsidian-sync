@@ -99,4 +99,24 @@ describe('DebouncedWatcher', () => {
 		expect(seen[1]).toEqual({ changed: ['other.md'], deleted: ['gone.md'] });
 		watcher.stop();
 	});
+
+	test('flush sends the collecting batch at once and cancels the timer', async () => {
+		vi.useFakeTimers();
+		const vault = new FakeVault();
+		const batches: DirtyBatch[] = [];
+		const watcher = new DebouncedWatcher(vault.asVault(), 1_000, (batch) => {
+			batches.push(batch);
+		});
+		watcher.start();
+
+		vault.emit('modify', 'a.md');
+		await watcher.flush();
+		expect(vi.getTimerCount()).toBe(0);
+		await vi.advanceTimersByTimeAsync(2_000);
+		await watcher.flush();
+
+		expect(batches).toEqual([{ changed: ['a.md'], deleted: [] }]);
+		watcher.stop();
+		vi.useRealTimers();
+	});
 });

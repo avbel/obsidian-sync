@@ -36,6 +36,22 @@ describe('PendingQueue', () => {
 		expect(queue.ready(6_000, 'upsert')).toHaveLength(1);
 	});
 
+	test('retryNow lifts backoff and pause but keeps a halt and blocked items', async () => {
+		const queue = await loaded();
+		queue.enqueue('a.md', 'upsert');
+		queue.enqueue('big.bin', 'upsert');
+		queue.fail('a.md', 60_000, 1_000, 'timeout');
+		queue.block('big.bin', 'oversize');
+		queue.pause(60_000);
+
+		queue.retryNow();
+
+		expect(queue.ready(1_000, 'upsert').map((item) => item.path)).toEqual(['a.md']);
+		queue.pause(Number.MAX_SAFE_INTEGER);
+		queue.retryNow();
+		expect(queue.ready(1_000, 'upsert')).toEqual([]);
+	});
+
 	test('parks blocked items but re-enqueueing unblocks them', async () => {
 		const queue = await loaded();
 		queue.enqueue('huge.bin', 'upsert');

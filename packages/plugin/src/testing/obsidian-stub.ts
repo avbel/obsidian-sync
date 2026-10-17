@@ -165,6 +165,10 @@ export class Setting {
 	}
 }
 
+export class MarkdownView {
+	async save(): Promise<void> {}
+}
+
 export class ItemView {
 	constructor(readonly leaf: unknown) {}
 }

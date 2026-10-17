@@ -265,3 +265,34 @@ describe('an engine the plugin has replaced', () => {
 		expect(laptop.index.entries()).toEqual([]);
 	});
 });
+
+describe('a push sent before pulling', () => {
+	test('an edit to a file deleted elsewhere is recreated in the same pass', async () => {
+		const laptop = await device('laptop');
+		laptop.vault.putText('a.md', 'original\n');
+		laptop.queue.enqueue('a.md', 'upsert');
+		await laptop.engine.pushAll({ fullScan: false });
+		const phone = await device('phone');
+		await phone.engine.pullAll();
+
+		await laptop.vault.trash('a.md');
+		laptop.queue.enqueue('a.md', 'delete');
+		await laptop.engine.pushAll({ fullScan: false });
+		phone.vault.putText('a.md', 'edited on the phone\n');
+		phone.queue.enqueue('a.md', 'upsert');
+		await phone.engine.pushAll({ queuedOnly: true });
+
+		expect(phone.queue.depth()).toEqual({ upserts: 0, deletes: 0, blocked: 0 });
+		await laptop.engine.pullAll();
+		expect(laptop.vault.getText('a.md')).toBe('edited on the phone\n');
+	});
+
+	test('sends only what is queued, without scanning the config directory', async () => {
+		const laptop = await device('laptop');
+		laptop.vault.putText('.obsidian/app.json', '{"readableLineLength":true}\n');
+
+		await laptop.engine.pushAll({ queuedOnly: true });
+
+		expect(commitCount()).toBe(0);
+	});
+});

@@ -80,24 +80,35 @@ export class DebouncedWatcher {
 		}
 	}
 
+	flush(): Promise<void> {
+		if (this.#timer !== undefined) {
+			clearTimeout(this.#timer);
+			this.#timer = undefined;
+		}
+		if (this.#changed.size === 0 && this.#deleted.size === 0) {
+			return Promise.resolve();
+		}
+		const batch: DirtyBatch = { changed: [...this.#changed], deleted: [...this.#deleted] };
+		this.#changed.clear();
+		this.#deleted.clear();
+		// A failed flush puts the paths back: clearing them before the upload is
+		// acknowledged is how an offline delete gets forgotten entirely.
+		return Promise.resolve(this.#onFlush(batch)).catch(() => {
+			for (const path of batch.changed) {
+				this.#changed.add(path);
+			}
+			for (const path of batch.deleted) {
+				this.#deleted.add(path);
+			}
+		});
+	}
+
 	#schedule(): void {
 		if (this.#timer !== undefined) {
 			clearTimeout(this.#timer);
 		}
 		this.#timer = setTimeout(() => {
-			const batch: DirtyBatch = { changed: [...this.#changed], deleted: [...this.#deleted] };
-			this.#changed.clear();
-			this.#deleted.clear();
-			// A failed flush puts the paths back: clearing them before the upload is
-			// acknowledged is how an offline delete gets forgotten entirely.
-			void Promise.resolve(this.#onFlush(batch)).catch(() => {
-				for (const path of batch.changed) {
-					this.#changed.add(path);
-				}
-				for (const path of batch.deleted) {
-					this.#deleted.add(path);
-				}
-			});
+			void this.flush();
 		}, this.#debounceMs);
 	}
 }

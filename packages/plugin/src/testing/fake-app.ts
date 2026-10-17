@@ -36,6 +36,19 @@ export class FakeApp {
 	readonly local = new Map<string, string>();
 	/** Obsidian's secret storage, which holds the token and passphrase. */
 	readonly secrets = new Map<string, string>();
+	/** What `workspace.getActiveViewOfType` hands back: the editor a backgrounding app saves. */
+	activeView: { save(): Promise<void> } | null = null;
+	readonly #handlers = new Map<string, ((file: TFile) => void)[]>();
+
+	emit(name: 'create' | 'modify', path: string): void {
+		const file = this.#tfile(path);
+		if (file === null) {
+			return;
+		}
+		for (const handler of this.#handlers.get(name) ?? []) {
+			handler(file);
+		}
+	}
 
 	put(path: string, text: string): void {
 		this.files.set(path, { data: encode(text), mtime: 1, ctime: 1 });
@@ -176,7 +189,8 @@ export class FakeApp {
 			getFileByPath(path: string) {
 				return self.#tfile(path);
 			},
-			on() {
+			on(name: string, handler: (file: TFile) => void) {
+				self.#handlers.set(name, [...(self.#handlers.get(name) ?? []), handler]);
 				return {};
 			},
 			offref() {},
@@ -218,6 +232,9 @@ export class FakeApp {
 			workspace: {
 				getLeavesOfType() {
 					return [];
+				},
+				getActiveViewOfType() {
+					return self.activeView;
 				},
 				onLayoutReady(fn: () => void) {
 					fn();
