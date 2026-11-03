@@ -80,8 +80,16 @@ const ignoredDirectories = new Set([
 	'system volume information',
 ]);
 
+/**
+ * Obsidian 1.15 lists a file opened from outside the vault as a vault file under
+ * `file:<absolute path>`. It belongs to the desktop's disk, not the vault, and no
+ * mobile vault can create a `:` path, so a phone pulling one fails on it forever.
+ */
+const externalFilePrefix = 'file:';
+
 export function isNeverSynced(normalisedPath: string): boolean {
 	if (
+		normalisedPath.startsWith(externalFilePrefix) ||
 		neverSyncedPaths.has(normalisedPath) ||
 		normalisedPath === pluginDir ||
 		normalisedPath.startsWith(`${pluginDir}/`)

@@ -308,6 +308,7 @@ It is off by default and applies only to versions committed after it is switched
 
 - `workspace.json` and `workspace-mobile.json` — they describe device-local pane layout.
 - This plugin's own state directory.
+- Files opened from outside the vault. Obsidian lists them under a `file:` path; they live on that one machine's disk, and no phone can create a `:` path.
 - Obsidian's local trash (`.trash/`), which would otherwise resurrect every deleted note on every other device, and version-control metadata (`.git/`, `.svn/`, `.hg/`).
 - Operating-system debris: `.DS_Store`, `._*` resource forks, `.Spotlight-V100/`, `Thumbs.db` (and `Thumbs.db:encryptable`), `ehthumbs.db`, `desktop.ini`, `$RECYCLE.BIN/` and friends. Matching is case-insensitive, because macOS and Windows are.
 - Editor, log and download temporaries: `*.swp`, `*~`, `*.~*`, `.#*`, `~$*`, `*.tmp`, `*.log`, `*.bak`, `*.old`, `*.part`, `*.crdownload`.
